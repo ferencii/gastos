@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplicación de Gastos de Empresa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -khtml-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            touch-action: pan-y;
+            overscroll-behavior-y: none;
+        }
+        .app-container {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .page-content {
+            flex-grow: 1;
+        }
+        .btn-primary {
+            @apply bg-indigo-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg hover:bg-indigo-700 transition-colors duration-200;
+        }
+        .btn-secondary {
+            @apply bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-xl shadow-md hover:bg-gray-300 transition-colors duration-200;
+        }
+        .input-text {
+            @apply w-full p-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500;
+        }
+        .card {
+            @apply bg-white p-6 rounded-3xl shadow-xl transition-transform transform hover:scale-105;
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #4f46e5;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+        /* Custom modal styles */
+        .modal {
+            display: none; 
+            position: fixed; 
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%; 
+            height: 100%; 
+            overflow: auto;
+            background-color: rgb(0,0,0); 
+            background-color: rgba(0,0,0,0.4); 
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border-radius: 1rem;
+            max-width: 90%;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div id="app" class="app-container">
+        <!-- Vistas de la aplicación -->
+        <div id="loadingView" class="loading-overlay hidden">
+            <div class="spinner"></div>
+        </div>
+        
+        <div id="projectsView" class="page-content p-4 sm:p-8">
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-center mb-6">Mis Proyectos de Gastos</h1>
+            <p class="text-center text-sm text-gray-500 mb-4">Guardado localmente en este dispositivo.</p>
+            <div id="projectsList" class="space-y-4 mb-6">
+                <!-- Los proyectos se renderizarán aquí -->
+            </div>
+            <button id="createProjectBtn" class="btn-primary w-full text-center">Crear Nuevo Proyecto</button>
+        </div>
+
+        <div id="newProjectView" class="page-content p-4 sm:p-8 hidden">
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-center mb-6">Nuevo Proyecto</h1>
+            <div class="card">
+                <input type="text" id="newProjectName" class="input-text mb-4" placeholder="Nombre del Proyecto" />
+                <button id="saveNewProjectBtn" class="btn-primary w-full">Guardar Proyecto</button>
+            </div>
+            <button id="backToProjectsBtn" class="btn-secondary w-full mt-4">Cancelar</button>
+        </div>
+
+        <div id="projectDetailView" class="page-content p-4 sm:p-8 hidden">
+            <h1 id="projectTitle" class="text-3xl sm:text-4xl font-extrabold text-center mb-6"></h1>
+            <div id="expensesList" class="space-y-4 mb-6">
+                <!-- Los gastos se renderizarán aquí -->
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button id="addExpenseBtn" class="btn-primary">Añadir Gasto</button>
+                <button id="downloadExcelBtn" class="btn-secondary">Descargar Excel</button>
+                <button id="deleteProjectBtn" class="bg-red-500 text-white font-bold py-3 px-6 rounded-xl shadow-md hover:bg-red-600 transition-colors duration-200 col-span-1 sm:col-span-2">Eliminar Proyecto</button>
+            </div>
+            <button id="backFromProjectBtn" class="btn-secondary w-full mt-4">Volver a Proyectos</button>
+        </div>
+
+        <div id="addExpenseView" class="page-content p-4 sm:p-8 hidden">
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-center mb-6">Añadir Nuevo Gasto</h1>
+            <div class="card space-y-4">
+                <input type="file" id="receiptImageInput" accept="image/*" capture="camera" class="hidden" />
+                <button id="captureImageBtn" class="btn-primary w-full">
+                    Tomar Foto del Recibo
+                </button>
+                <img id="receiptPreview" class="rounded-xl w-full max-h-64 object-contain mx-auto border border-gray-300 hidden" />
+                <div id="extractedData" class="space-y-4 hidden">
+                    <input type="date" id="expenseDate" class="input-text" />
+                    <input type="text" id="expenseAmount" class="input-text" placeholder="Importe Total" />
+                    <input type="text" id="expenseDesc" class="input-text" placeholder="Descripción" />
+                    <select id="expenseCategory" class="input-text">
+                        <option value="" disabled selected>Selecciona una categoría</option>
+                        <option value="OVERSEAS - TRAVEL EXPENSES">OVERSEAS - TRAVEL EXPENSES</option>
+                        <option value="LOCAL - TRAVEL EXPENSES">LOCAL - TRAVEL EXPENSES</option>
+                        <option value="ENTERTAINMENT">ENTERTAINMENT</option>
+                        <option value="OTHERS">OTHERS</option>
+                    </select>
+                    <button id="saveExpenseBtn" class="btn-primary w-full">Guardar Gasto</button>
+                </div>
+            </div>
+            <button id="backFromAddExpenseBtn" class="btn-secondary w-full mt-4">Cancelar</button>
+        </div>
+    </div>
+    
+    <!-- Custom Modal for Alerts -->
+    <div id="customAlertModal" class="modal">
+        <div class="modal-content">
+            <h3 id="modalTitle" class="text-xl font-bold mb-2"></h3>
+            <p id="modalMessage" class="mb-4"></p>
+            <button id="closeModalBtn" class="btn-primary">Aceptar</button>
+        </div>
+    </div>
+
+    <script type="module">
+        // Global variables for app state
+        let currentProjectId = null;
+        let allProjects = [];
+
+        const STORAGE_KEY = 'gastos_empresa_proyectos';
+        const EXCEL_TEMPLATE_URL = 'gastos.xlsx';
+
+        // --- View Management ---
+        const views = {
+            projectsView: document.getElementById('projectsView'),
+            newProjectView: document.getElementById('newProjectView'),
+            projectDetailView: document.getElementById('projectDetailView'),
+            addExpenseView: document.getElementById('addExpenseView'),
+            loadingView: document.getElementById('loadingView')
+        };
+        const customAlertModal = document.getElementById('customAlertModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+
+        function showView(viewName) {
+            Object.values(views).forEach(view => view.classList.add('hidden'));
+            views[viewName].classList.remove('hidden');
+        }
+
+        function showProjectsView() {
+            loadProjects();
+            showView('projectsView');
+        }
+
+        function showNewProjectView() {
+            showView('newProjectView');
+            document.getElementById('newProjectName').value = '';
+        }
+
+        function showProjectDetailView() {
+            showView('projectDetailView');
+        }
+
+        function showAddExpenseView() {
+            document.getElementById('receiptPreview').classList.add('hidden');
+            document.getElementById('extractedData').classList.remove('hidden'); // Show form for manual input
+            showView('addExpenseView');
+        }
+
+        function showLoading(show) {
+            if (show) {
+                views.loadingView.classList.remove('hidden');
+            } else {
+                views.loadingView.classList.add('hidden');
+            }
+        }
+        
+        function showAlert(title, message) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalMessage').textContent = message;
+            customAlertModal.style.display = 'flex';
+        }
+
+        closeModalBtn.addEventListener('click', () => {
+            customAlertModal.style.display = 'none';
+        });
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            loadProjects();
+        });
+
+
+        // --- Data Handling (localStorage) ---
+        function loadProjects() {
+            const storedProjects = localStorage.getItem(STORAGE_KEY);
+            allProjects = storedProjects ? JSON.parse(storedProjects) : [];
+            renderProjectsList();
+        }
+
+        function saveProjects() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(allProjects));
+        }
+
+        function createProject() {
+            const projectName = document.getElementById('newProjectName').value;
+            if (!projectName.trim()) return;
+
+            const newProject = {
+                id: Date.now().toString(),
+                name: projectName,
+                createdAt: new Date().toISOString(),
+                expenses: []
+            };
+
+            allProjects.push(newProject);
+            saveProjects();
+            showProjectsView();
+        }
+
+        function addExpenseToProject(expenseData) {
+            if (!currentProjectId) {
+                console.error("No project selected.");
+                return;
+            }
+
+            const project = allProjects.find(p => p.id === currentProjectId);
+            if (project) {
+                project.expenses.push(expenseData);
+                saveProjects();
+                loadProjectDetails(currentProjectId);
+            }
+        }
+
+        function loadProjectDetails(projectId) {
+            if (!projectId) {
+                console.error("No project ID provided.");
+                return;
+            }
+            currentProjectId = projectId;
+            const project = allProjects.find(p => p.id === projectId);
+            if (project) {
+                document.getElementById('projectTitle').textContent = project.name;
+                renderExpenses(project.expenses);
+                showProjectDetailView();
+            } else {
+                console.error("Project not found.");
+            }
+        }
+
+        function deleteProject(projectId) {
+            if (!confirm('¿Estás seguro de que quieres eliminar este proyecto y todos sus gastos?')) return;
+            allProjects = allProjects.filter(p => p.id !== projectId);
+            saveProjects();
+            showProjectsView();
+        }
+
+        // --- UI Rendering Functions ---
+        function renderProjectsList() {
+            const list = document.getElementById('projectsList');
+            list.innerHTML = '';
+            if (allProjects.length === 0) {
+                list.innerHTML = `<p class="text-center text-gray-500">No hay proyectos de gastos. ¡Crea uno!</p>`;
+                return;
+            }
+            allProjects.forEach(project => {
+                const projectCard = document.createElement('div');
+                projectCard.classList.add('card');
+                projectCard.innerHTML = `
+                    <h2 class="text-xl font-semibold">${project.name}</h2>
+                    <p class="text-sm text-gray-500">Creado el ${new Date(project.createdAt).toLocaleDateString()}</p>
+                `;
+                projectCard.addEventListener('click', () => {
+                    loadProjectDetails(project.id);
+                });
+                list.appendChild(projectCard);
+            });
+        }
+
+        function renderExpenses(expenses) {
+            const list = document.getElementById('expensesList');
+            list.innerHTML = '';
+            if (expenses.length === 0) {
+                list.innerHTML = `<p class="text-center text-gray-500">No hay gastos en este proyecto. ¡Añade uno!</p>`;
+                return;
+            }
+            expenses.forEach(expense => {
+                const expenseCard = document.createElement('div');
+                expenseCard.classList.add('card');
+                expenseCard.innerHTML = `
+                    <img src="${expense.receiptImage}" class="rounded-xl w-full max-h-48 object-contain mb-4" />
+                    <h3 class="text-lg font-semibold">${expense.description || 'Sin descripción'}</h3>
+                    <p class="text-sm">Fecha: ${expense.date}</p>
+                    <p class="text-sm">Importe: $${expense.amount}</p>
+                    <p class="text-sm">Categoría: ${expense.category}</p>
+                `;
+                list.appendChild(expenseCard);
+            });
+        }
+
+        // --- Event Listeners ---
+        document.getElementById('createProjectBtn').addEventListener('click', showNewProjectView);
+        document.getElementById('saveNewProjectBtn').addEventListener('click', createProject);
+        document.getElementById('backToProjectsBtn').addEventListener('click', showProjectsView);
+        document.getElementById('backFromProjectBtn').addEventListener('click', showProjectsView);
+        document.getElementById('backFromAddExpenseBtn').addEventListener('click', () => loadProjectDetails(currentProjectId));
+        document.getElementById('deleteProjectBtn').addEventListener('click', () => deleteProject(currentProjectId));
+
+        document.getElementById('addExpenseBtn').addEventListener('click', showAddExpenseView);
+
+        // This part is modified to include AI call with error handling.
+        document.getElementById('captureImageBtn').addEventListener('click', () => {
+            document.getElementById('receiptImageInput').click();
+        });
+
+        document.getElementById('receiptImageInput').addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const base64Image = e.target.result;
+                document.getElementById('receiptPreview').src = base64Image;
+                document.getElementById('receiptPreview').classList.remove('hidden');
+
+                document.getElementById('saveExpenseBtn').dataset.imageData = base64Image;
+
+                showLoading(true);
+
+                try {
+                    const prompt = "Actúa como un asistente para informes de gastos. Analiza la siguiente imagen de un recibo y extrae la fecha de la compra (formato YYYY-MM-DD), el total de la compra (como un número sin el símbolo de moneda) y una breve descripción del gasto (por ejemplo, el nombre del comercio). Responde únicamente con un objeto JSON con las claves 'date', 'amount' y 'description'. Si no puedes encontrar un dato, usa una cadena vacía o 0. El idioma de la respuesta debe ser español. El objeto JSON debe estar en una sola línea y sin saltos de línea.";
+                    const payload = {
+                        contents: [{
+                            parts: [
+                                { text: prompt },
+                                {
+                                    inlineData: {
+                                        mimeType: file.type,
+                                        data: base64Image.split(',')[1] 
+                                    }
+                                }
+                            ]
+                        }]
+                    };
+
+                    const apiKey = "";
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('API request failed');
+                    }
+
+                    const result = await response.json();
+                    const jsonString = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    const parsedData = JSON.parse(jsonString);
+
+                    document.getElementById('expenseDate').value = parsedData.date;
+                    document.getElementById('expenseAmount').value = parsedData.amount;
+                    document.getElementById('expenseDesc').value = parsedData.description;
+
+                    showAlert("Éxito de la IA", "Datos del recibo auto-rellenados. Por favor, revísalos.");
+
+                } catch (error) {
+                    console.error("Error processing image with AI:", error);
+                    showAlert("Error de la IA", "No se pudieron extraer los datos del recibo. Por favor, rellena los campos manualmente.");
+                } finally {
+                    showLoading(false);
+                    document.getElementById('extractedData').classList.remove('hidden');
+                }
+            };
+            reader.readAsDataURL(file);
+        });
+
+        document.getElementById('saveExpenseBtn').addEventListener('click', () => {
+            const expenseData = {
+                date: document.getElementById('expenseDate').value,
+                amount: parseFloat(document.getElementById('expenseAmount').value) || 0,
+                description: document.getElementById('expenseDesc').value,
+                category: document.getElementById('expenseCategory').value,
+                receiptImage: document.getElementById('saveExpenseBtn').dataset.imageData || ''
+            };
+
+            if (!expenseData.date || !expenseData.amount || !expenseData.category) {
+                showAlert("Campos Incompletos", "Por favor, completa todos los campos requeridos.");
+                return;
+            }
+
+            addExpenseToProject(expenseData);
+        });
+        
+        // Function to convert Base64 to an ArrayBuffer
+        function base64ToArrayBuffer(base64) {
+            const binaryString = window.atob(base64.split(',')[1]);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        // Download Excel File
+        document.getElementById('downloadExcelBtn').addEventListener('click', async () => {
+            showLoading(true);
+
+            const project = allProjects.find(p => p.id === currentProjectId);
+            if (!project) {
+                console.error("Project not found.");
+                showLoading(false);
+                return;
+            }
+            const expenses = project.expenses;
+
+            try {
+                // Fetch the Excel template file
+                const excelFileResponse = await fetch(EXCEL_TEMPLATE_URL);
+                if (!excelFileResponse.ok) {
+                    throw new Error(`Failed to fetch Excel template: ${excelFileResponse.statusText}`);
+                }
+                const excelFileBlob = await excelFileResponse.blob();
+                const arrayBuffer = await excelFileBlob.arrayBuffer();
+
+                // Read the Excel workbook
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+                // Process "Corporate Credit Card" sheet
+                const ccSheet = workbook.Sheets["Corporate Credit Card"];
+                if (ccSheet) {
+                    const overseasExpenses = expenses.filter(e => e.category === 'OVERSEAS - TRAVEL EXPENSES');
+                    const localExpenses = expenses.filter(e => e.category === 'LOCAL - TRAVEL EXPENSES');
+                    const entertainmentExpenses = expenses.filter(e => e.category === 'ENTERTAINMENT');
+                    const otherExpenses = expenses.filter(e => e.category === 'OTHERS');
+                    
+                    // The starting row indices for each section are based on the CSV data
+                    const rowIndices = {
+                        'OVERSEAS - TRAVEL EXPENSES': 9,
+                        'LOCAL - TRAVEL EXPENSES': 18,
+                        'ENTERTAINMENT': 26,
+                        'OTHERS': 34
+                    };
+
+                    const sheetData = XLSX.utils.sheet_to_json(ccSheet, { header: 1, range: 0, raw: true });
+
+                    overseasExpenses.forEach((expense, i) => {
+                        sheetData[rowIndices['OVERSEAS - TRAVEL EXPENSES'] + i] = [
+                            expense.date, // Assuming date is in column B
+                            expense.description, // Assuming description is in column C
+                            '', // Purchase Order is empty
+                            '', // Client Training is empty
+                            '', // Meals
+                            '', // Accomodation
+                            '', // Airfares
+                            '', // Transport
+                            expense.amount // Other is in column J
+                        ];
+                    });
+                    
+                    localExpenses.forEach((expense, i) => {
+                        sheetData[rowIndices['LOCAL - TRAVEL EXPENSES'] + i] = [
+                            expense.date,
+                            expense.description,
+                            '', // Purchase Order
+                            expense.amount, // Meals
+                            '', // Accomodation
+                            '', // Airfare
+                            '', // Transport
+                            '' // Other
+                        ];
+                    });
+                    
+                    entertainmentExpenses.forEach((expense, i) => {
+                        sheetData[rowIndices['ENTERTAINMENT'] + i] = [
+                            expense.date,
+                            expense.description,
+                            '', // Quantity
+                            '', // Place
+                            expense.amount, // Total Price
+                            '', // Staff Meal
+                            '', // Client Meal
+                            '', // GST
+                            '' // Marked "X"
+                        ];
+                    });
+
+                    otherExpenses.forEach((expense, i) => {
+                        sheetData[rowIndices['OTHERS'] + i] = [
+                            expense.date,
+                            expense.description,
+                            '', // Purchase Order
+                            '', // Client Training
+                            '', // Meals
+                            '', // Accomodation
+                            '', // Airfares
+                            '', // Transport
+                            expense.amount // Other
+                        ];
+                    });
+                    
+                    // Write back to sheet
+                    const newSheetCC = XLSX.utils.aoa_to_sheet(sheetData);
+                    workbook.Sheets["Corporate Credit Card"] = newSheetCC;
+                }
+
+                // Process "OTHERS support doc" sheet and insert images
+                const supportSheet = workbook.Sheets["OTHERS support doc"];
+                if (supportSheet) {
+                    const supportData = XLSX.utils.sheet_to_json(supportSheet, { header: 1, raw: true });
+                    const images = [];
+                    let currentRow = 4; // Assuming row 5 is the first row for data
+                    
+                    expenses.forEach((expense, index) => {
+                        const expenseRowData = [
+                            '',
+                            index + 1,
+                            expense.date,
+                            expense.description,
+                            '',
+                            expense.amount
+                        ];
+                        
+                        // Add expense data to the sheet data array
+                        if (supportData[currentRow]) {
+                            supportData[currentRow] = expenseRowData;
+                        } else {
+                            supportData.push(expenseRowData);
+                        }
+                        
+                        if (expense.receiptImage) {
+                            images.push({
+                                data: expense.receiptImage.split(',')[1],
+                                type: 'image/jpeg', // Assume jpeg as default
+                                row: currentRow + 2,
+                                col: 2
+                            });
+                        }
+                        currentRow += 5; // Move to the next block of 5 rows (1 for data, 4 for image)
+                    });
+                    
+                    const newSheetSupport = XLSX.utils.aoa_to_sheet(supportData);
+                    
+                    // Insert images into the sheet
+                    newSheetSupport['!images'] = [];
+                    images.forEach(img => {
+                        newSheetSupport['!images'].push({
+                            data: img.data,
+                            'content-type': img.type,
+                            width: 250,
+                            height: 350,
+                            from: { c: img.col, r: img.row },
+                            to: { c: img.col + 3, r: img.row + 4 }
+                        });
+                    });
+                    
+                    workbook.Sheets["OTHERS support doc"] = newSheetSupport;
+                }
+
+                // Generate and download the file
+                const projectName = document.getElementById('projectTitle').textContent;
+                XLSX.writeFile(workbook, `${projectName}_reporte.xlsx`);
+                
+            } catch (error) {
+                console.error("Error generating Excel:", error);
+                showAlert("Error", `No se pudo generar el archivo Excel. Asegúrate de que el archivo 'gastos.xlsx' exista en el mismo directorio. ${error.message}`);
+            } finally {
+                showLoading(false);
+            }
+        });
+    </script>
+</body>
+</html>
