@@ -806,16 +806,24 @@ El JSON debe tener este formato exacto:
             if (!ccSheet) throw new Error("Hoja Corporate Credit Card no encontrada");
             if (!supportSheet) throw new Error("Hoja LOCAL TE support doc no encontrada");
 
+            function normalizeCategory(value) {
+                if (typeof value === 'string') {
+                    return value.trim().toUpperCase();
+                }
+                return value;
+            }
+
             // Función para encontrar el rango de una categoría
             function findCategoryRange(categoryName) {
+                const normalizedTarget = normalizeCategory(categoryName);
                 let startRow = null;
                 let endRow = null;
-                
+
                 // Buscar la categoría en la columna B
                 for (let i = 1; i <= ccSheet.rowCount; i++) {
                     const cell = ccSheet.getCell(`B${i}`);
-                    
-                    if (cell.value === categoryName) {
+
+                    if (normalizeCategory(cell.value) === normalizedTarget) {
                         // La fila de datos comienza después de la fila "DATE"
                         startRow = i + 2;
                         
@@ -914,27 +922,27 @@ El JSON debe tener este formato exacto:
             }
 
             // Función para insertar imagen en la hoja de soporte
-            function insertReceiptImage(imageData, rowIndex) {
+            function insertReceiptImage(imageData) {
                 if (!imageData) return;
-                
-                // Encontrar el siguiente espacio disponible
-                let imgCol = 1;
-                let imgRow = 1;
-                const maxImagesPerRow = 2;
+
                 const imageHeight = 300;
                 const imageWidth = 400;
-                
-                // Buscar espacio libre
+                const rowPadding = 2;
+                const minimumRowSpacing = 20;
+
                 const existingImages = supportSheet.getImages();
+                let nextTopRow = 0;
+
                 if (existingImages.length > 0) {
-                    const lastImage = existingImages[existingImages.length - 1];
-                    imgCol = lastImage.range.br.col + 1;
-                    imgRow = lastImage.range.br.row;
-                    
-                    if (imgCol > maxImagesPerRow) {
-                        imgCol = 1;
-                        imgRow = lastImage.range.br.row + imageHeight;
-                    }
+                    const lastImage = existingImages.reduce((prev, current) => {
+                        const prevBottom = prev.range?.br?.row ?? prev.range?.tl?.row ?? 0;
+                        const currentBottom = current.range?.br?.row ?? current.range?.tl?.row ?? 0;
+                        return currentBottom > prevBottom ? current : prev;
+                    });
+
+                    const lastBottomRow = lastImage.range?.br?.row ?? lastImage.range?.tl?.row ?? 0;
+                    const fallbackRow = existingImages.length * minimumRowSpacing;
+                    nextTopRow = Math.max(lastBottomRow + rowPadding, fallbackRow);
                 }
 
                 const imageId = workbook.addImage({
@@ -943,7 +951,7 @@ El JSON debe tener este formato exacto:
                 });
 
                 supportSheet.addImage(imageId, {
-                    tl: { col: imgCol, row: imgRow },
+                    tl: { col: 0, row: nextTopRow },
                     ext: { width: imageWidth, height: imageHeight }
                 });
             }
@@ -994,10 +1002,10 @@ El JSON debe tener este formato exacto:
                         break;
 
                     case 'OTHERS':
-                        row.getCell('E').value = expense.clientTraining;
-                        row.getCell('F').value = expense.purchaseOrder;
-                        row.getCell('G').value = expense.project;
-                        row.getCell('H').value = Number(expense.totalPrice) || 0;
+                        row.getCell('F').value = expense.clientTraining;
+                        row.getCell('G').value = expense.purchaseOrder;
+                        row.getCell('H').value = expense.project;
+                        row.getCell('I').value = Number(expense.totalPrice) || 0;
                         row.getCell('K').value = expense.invoiceMissing ? 'X' : '';
                         row.getCell('L').value = Number(expense.foreignCurrency) || 0;
                         break;
@@ -1005,7 +1013,7 @@ El JSON debe tener este formato exacto:
 
                 // Insertar imagen del recibo si existe
                 if (expense.receiptImage) {
-                    insertReceiptImage(expense.receiptImage, rowToUse);
+                    insertReceiptImage(expense.receiptImage);
                 }
             }
 
