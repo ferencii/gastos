@@ -423,7 +423,12 @@
 
         document.getElementById('receiptImageInput').addEventListener('change', async (event) => {
             const file = event.target.files[0];
-            if (!file) return;
+            if (!file) {
+                console.log("No se seleccionó ningún archivo");
+                return;
+            }
+
+            console.log("Archivo seleccionado:", file.name, "Tipo:", file.type);
 
             const reader = new FileReader();
             reader.onload = async (e) => {
@@ -433,6 +438,7 @@
                 document.getElementById('saveExpenseBtn').dataset.imageData = base64Image;
 
                 showLoading(true);
+                console.log("Iniciando proceso de IA...");
 
                 try {
                     const prompt = `Actúa como un asistente para informes de gastos. Analiza la siguiente imagen de un recibo y extrae:
@@ -443,6 +449,8 @@
                         - lugar o establecimiento
                         Responde con un objeto JSON con estas claves. Si no encuentras algún dato, usa cadena vacía o 0.`;
 
+                    console.log("Preparando payload para API...");
+                    
                     const payload = {
                         contents: [{
                             parts: [
@@ -457,8 +465,10 @@
                 }]
             };
 
-            const apiKey = "AIzaSyAr0XLuj3QTWA866ezyoJY0JdjA8SInQ_Y"; // Reemplazar con tu API key de Google
+            const apiKey = "AIzaSyAr0XLuj3QTWA866ezyoJY0JdjA8SInQ_Y";
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+            console.log("Enviando solicitud a API Gemini...");
 
             const response = await fetch(apiUrl, {
                 method: 'POST',
@@ -466,23 +476,37 @@
                 body: JSON.stringify(payload)
             });
 
+            console.log("Respuesta recibida, estado:", response.status);
+
             if (!response.ok) {
-                throw new Error('API request failed');
+                const errorText = await response.text();
+                console.error("Error detallado de la API:", errorText);
+                throw new Error(`API request failed with status ${response.status}`);
             }
 
             const result = await response.json();
-            const jsonString = result.candidates?.[0]?.content?.parts?.[0]?.text;
-            const parsedData = JSON.parse(jsonString);
+            console.log("Respuesta de la API:", result);
 
-            // Inferir la categoría basada en los datos
+            const jsonString = result.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!jsonString) {
+                throw new Error("No se recibió respuesta válida de la API");
+            }
+
+            console.log("JSON recibido:", jsonString);
+            const parsedData = JSON.parse(jsonString);
+            console.log("Datos parseados:", parsedData);
+
+            // Inferir la categoría
             let suggestedCategory = '';
             if (parsedData.airfares > 0 || parsedData.accommodation > 0) {
                 suggestedCategory = parsedData.isOverseas ? 'OVERSEAS - TRAVEL EXPENSES' : 'LOCAL - TRAVEL EXPENSES';
-            } else if (parsedData.meals > 0 && parsedData.place.toLowerCase().includes('restaurant')) {
+            } else if (parsedData.meals > 0 && parsedData.place?.toLowerCase().includes('restaurant')) {
                 suggestedCategory = 'ENTERTAINMENT';
             } else {
                 suggestedCategory = 'OTHERS';
             }
+
+            console.log("Categoría sugerida:", suggestedCategory);
 
             // Establecer la categoría sugerida
             const categorySelect = document.getElementById('expenseCategory');
