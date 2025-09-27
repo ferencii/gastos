@@ -469,8 +469,15 @@
                 const excelFileBlob = await excelFileResponse.blob();
                 const arrayBuffer = await excelFileBlob.arrayBuffer();
 
-                // Read the Excel workbook
-                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                // Read the Excel workbook with full formatting options
+                const workbook = XLSX.read(arrayBuffer, { 
+                    type: 'array',
+                    cellFormula: true,  // Mantener fórmulas
+                    cellStyles: true,   // Mantener estilos
+                    bookVBA: true,      // Mantener macros si existen
+                    cellNF: true,       // Mantener formato numérico
+                    cellDates: true     // Mantener fechas
+                });
 
                 // Process "Corporate Credit Card" sheet
                 const ccSheet = workbook.Sheets["Corporate Credit Card"];
@@ -603,9 +610,18 @@
                     workbook.Sheets["OTHERS support doc"] = newSheetSupport;
                 }
 
+                // Al guardar el archivo, usar opciones que preserven el formato
+                const writeOpts = { 
+                    bookType: 'xlsx',
+                    type: 'array',
+                    cellStyles: true,
+                    compression: true,
+                    bookSST: true
+                };
+
                 // Generate and download the file
                 const projectName = document.getElementById('projectTitle').textContent;
-                XLSX.writeFile(workbook, `${projectName}_reporte.xlsx`);
+                XLSX.writeFile(workbook, `${projectName}_reporte.xlsx`, writeOpts);
                 
             } catch (error) {
                 console.error("Error generating Excel:", error);
