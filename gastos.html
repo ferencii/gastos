@@ -454,92 +454,92 @@
             showLoading(true);
 
             try {
-                // Cargar la plantilla
-                const response = await fetch(EXCEL_TEMPLATE_URL);
-                const templateBuffer = await response.arrayBuffer();
-                
-                // Crear nuevo workbook desde la plantilla
-                const workbook = new ExcelJS.Workbook();
-                await workbook.xlsx.load(templateBuffer);
-
+                // Obtener el proyecto actual
                 const project = allProjects.find(p => p.id === currentProjectId);
                 if (!project) throw new Error("Proyecto no encontrado");
 
-                // Procesar hoja "Corporate Credit Card"
+                // 1. Primero obtener el archivo template como blob
+                const response = await fetch(EXCEL_TEMPLATE_URL);
+                if (!response.ok) throw new Error('No se pudo cargar el template');
+                const templateBlob = await response.blob();
+                
+                // 2. Crear una copia del archivo
+                const newBlob = templateBlob.slice(0, templateBlob.size, templateBlob.type);
+                const arrayBuffer = await newBlob.arrayBuffer();
+                
+                // 3. Cargar el workbook
+                const workbook = new ExcelJS.Workbook();
+                await workbook.xlsx.load(arrayBuffer);
+
+                // 4. Modificar solo los valores sin tocar las fórmulas
                 const ccSheet = workbook.getWorksheet("Corporate Credit Card");
                 if (ccSheet) {
-                    const rowIndices = {
+                    // Objeto para mapear categorías a sus filas iniciales
+                    const categoryRows = {
                         'OVERSEAS - TRAVEL EXPENSES': 9,
                         'LOCAL - TRAVEL EXPENSES': 18,
                         'ENTERTAINMENT': 26,
                         'OTHERS': 34
                     };
 
+                    // Limpiar datos existentes en las áreas de entrada
+                    Object.values(categoryRows).forEach(startRow => {
+                        for (let i = 0; i < 5; i++) {
+                            const row = ccSheet.getRow(startRow + i);
+                            row.getCell(1).value = null; // Fecha
+                            row.getCell(2).value = null; // Descripción
+                            row.getCell(4).value = null; // LOCAL
+                            row.getCell(5).value = null; // ENTERTAINMENT
+                            row.getCell(9).value = null; // OVERSEAS/OTHERS
+                        }
+                    });
+
                     // Agrupar gastos por categoría
-                    const expensesByCategory = {
-                        'OVERSEAS - TRAVEL EXPENSES': project.expenses.filter(e => e.category === 'OVERSEAS - TRAVEL EXPENSES'),
-                        'LOCAL - TRAVEL EXPENSES': project.expenses.filter(e => e.category === 'LOCAL - TRAVEL EXPENSES'),
-                        'ENTERTAINMENT': project.expenses.filter(e => e.category === 'ENTERTAINMENT'),
-                        'OTHERS': project.expenses.filter(e => e.category === 'OTHERS')
-                    };
+                    const expensesByCategory = {};
+                    project.expenses.forEach(expense => {
+                        if (!expensesByCategory[expense.category]) {
+                            expensesByCategory[expense.category] = [];
+                        }
+                        expensesByCategory[expense.category].push(expense);
+                    });
 
-                    // Rellenar cada sección
-                    for (const [category, expenses] of Object.entries(expensesByCategory)) {
-                        let startRow = rowIndices[category];
+                    // Rellenar datos
+                    Object.entries(expensesByCategory).forEach(([category, expenses]) => {
+                        const startRow = categoryRows[category];
+                        if (!startRow) return;
+
                         expenses.forEach((expense, index) => {
+                            if (index >= 5) return; // Máximo 5 gastos por categoría
                             const row = ccSheet.getRow(startRow + index);
-                            // Mantener el formato copiando el estilo de la fila template
-                            const templateRow = ccSheet.getRow(startRow);
-                            row.style = JSON.parse(JSON.stringify(templateRow.style));
-
-                            // Rellenar datos
+                            
+                            // Establecer valores sin modificar fórmulas
                             row.getCell(1).value = new Date(expense.date);
                             row.getCell(2).value = expense.description;
-                            
-                            // Colocar el monto en la columna correcta según la categoría
+
+                            // Colocar monto en la columna correcta
                             if (category === 'OVERSEAS - TRAVEL EXPENSES') {
-                                row.getCell(9).value = expense.amount;
+                                row.getCell(9).value = Number(expense.amount);
                             } else if (category === 'LOCAL - TRAVEL EXPENSES') {
-                                row.getCell(4).value = expense.amount;
+                                row.getCell(4).value = Number(expense.amount);
                             } else if (category === 'ENTERTAINMENT') {
-                                row.getCell(5).value = expense.amount;
-                            } else {
-                                row.getCell(9).value = expense.amount;
+                                row.getCell(5).value = Number(expense.amount);
+                            } else { // OTHERS
+                                row.getCell(9).value = Number(expense.amount);
                             }
                         });
-                    }
-                }
-
-                // Procesar hoja "OTHERS support doc"
-                const supportSheet = workbook.getWorksheet("OTHERS support doc");
-                if (supportSheet) {
-                    let currentRow = 4;
-                    project.expenses.forEach((expense, index) => {
-                        const row = supportSheet.getRow(currentRow);
-                        row.getCell(2).value = index + 1;
-                        row.getCell(3).value = new Date(expense.date);
-                        row.getCell(4).value = expense.description;
-                        row.getCell(6).value = expense.amount;
-
-                        if (expense.receiptImage) {
-                            const imageId = workbook.addImage({
-                                base64: expense.receiptImage,
-                                extension: 'jpeg',
-                            });
-
-                            supportSheet.addImage(imageId, {
-                                tl: { col: 1.5, row: currentRow + 1 },
-                                br: { col: 5, row: currentRow + 4 }
-                            });
-                        }
-                        
-                        currentRow += 5;
                     });
                 }
 
-                // Guardar el archivo
-                const buffer = await workbook.xlsx.writeBuffer();
-                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                // 5. Guardar el archivo
+                const buffer = await workbook.xlsx.writeBuffer({
+                    filename: `${project.name}_reporte.xlsx`,
+                    useStyles: true,
+                    useSharedStrings: true
+                });
+
+                const blob = new Blob([buffer], { 
+                    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+                });
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
