@@ -181,7 +181,7 @@
             STORAGE_KEY: 'gastos_empresa_proyectos',
             EXCEL_TEMPLATE_URL: 'gastos.xlsx',
             API_VERSION: 'v1beta',
-            MODEL_NAME: 'gemini-pro-vision'
+            MODEL_NAME: 'gemini-2.5-flash-preview-05-20'
         };
 
         // Global variables for app state
@@ -571,8 +571,7 @@
                     showLoading(true);
                     console.log("Iniciando proceso de IA...");
 
-                    try {
-                        const prompt = `Analiza esta imagen de recibo y responde SOLO con un objeto JSON válido, sin ningún texto adicional ni marcadores.
+                    const prompt = `Analiza esta imagen de recibo y responde SOLO con un objeto JSON válido, sin ningún texto adicional ni marcadores.
 El JSON debe tener este formato exacto:
 {
 "date": "YYYY-MM-DD",
@@ -586,169 +585,169 @@ El JSON debe tener este formato exacto:
 "isOverseas": false
 }`;
 
-                        console.log("Preparando payload para API...");
-                        
-                        // Modificar la estructura del payload
+                    console.log("Preparando payload para API...");
+                    
+                    // Modificar la estructura del payload
 
-                        const payload = {
-                            model: "gemini-pro-vision",
-                            contents: [{
-                                parts: [
-                                    {
-                                        text: prompt
-                                    },
-                                    {
-                                        inline_data: {  // Cambiar inlineData a inline_data
-                                            mime_type: file.type,  // Cambiar mimeType a mime_type
-                                            data: base64Image.split(',')[1]
-                                        }
-                                    }
-                                ]
-                            }]
-                        };
-
-                        const apiUrl = `https://generativelanguage.googleapis.com/${CONFIG.API_VERSION}/models/${CONFIG.MODEL_NAME}:generateContent?key=${CONFIG.API_KEY}`;
-
-                        console.log("Enviando solicitud a API Gemini...");
-                        let response;
-                        try {
-                            response = await fetch(apiUrl, {
-                                method: 'POST',
-                                headers: { 
-                                    'Content-Type': 'application/json'
+                    const payload = {
+                        model: CONFIG.MODEL_NAME,
+                        contents: [{
+                            parts: [
+                                {
+                                    text: prompt
                                 },
-                                body: JSON.stringify(payload)
-                            });
-
-                            if (!response.ok) {
-                                const errorData = await response.json();
-                                console.error("Error detallado de la API:", errorData);
-                                
-                                // Mensajes de error más específicos
-                                if (errorData.error.code === 404) {
-                                    throw new Error("Modelo de IA no disponible. Por favor, verifica la configuración de la API.");
-                                } else if (errorData.error.code === 403) {
-                                    throw new Error("Error de autenticación. Verifica tu API key.");
-                                } else {
-                                    throw new Error(`Error de la API: ${errorData.error.message}`);
-                                }
-                            }
-
-                            const result = await response.json();
-                            console.log("Respuesta de la API:", result);
-
-                            let jsonString = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                            console.log("Texto recibido de la API:", jsonString);
-
-                            // Buscar el primer { y el último }
-                            const startIndex = jsonString.indexOf('{');
-                            const endIndex = jsonString.lastIndexOf('}');
-
-                            if (startIndex === -1 || endIndex === -1) {
-                                throw new Error("No se encontró un objeto JSON válido en la respuesta");
-                            }
-
-                            // Extraer solo el JSON
-                            jsonString = jsonString.substring(startIndex, endIndex + 1);
-                            console.log("JSON extraído:", jsonString);
-
-                            // Limpiar cualquier carácter que pueda quedar
-                            jsonString = jsonString
-                                .replace(/\n/g, '')
-                                .replace(/\r/g, '')
-                                .replace(/\\n/g, '')
-                                .replace(/\\r/g, '')
-                                .replace(/\s+/g, ' ')
-                                .trim();
-
-                            console.log("JSON limpio:", jsonString);
-
-                            let parsedData;
-                            try {
-                                parsedData = JSON.parse(jsonString);
-                            } catch (parseError) {
-                                console.error("Error al parsear JSON:", parseError);
-                                console.error("JSON que causó el error:", jsonString);
-                                throw new Error("No se pudo procesar la respuesta de la IA: formato inválido");
-                            }
-
-                            console.log("Datos parseados exitosamente:", parsedData);
-
-                            // Verificar que los datos necesarios estén presentes
-                            if (!parsedData.date || !parsedData.description) {
-                                throw new Error("Faltan datos requeridos en la respuesta de la IA");
-                            }
-
-                            // Inferir la categoría
-                            let suggestedCategory = '';
-                            if (parsedData.airfares > 0 || parsedData.accommodation > 0) {
-                                suggestedCategory = parsedData.isOverseas ? 'OVERSEAS - TRAVEL EXPENSES' : 'LOCAL - TRAVEL EXPENSES';
-                            } else if (parsedData.meals > 0 && parsedData.place?.toLowerCase().includes('restaurant')) {
-                                suggestedCategory = 'ENTERTAINMENT';
-                            } else {
-                                suggestedCategory = 'OTHERS';
-                            }
-
-                            console.log("Categoría sugerida:", suggestedCategory);
-
-                            // Establecer la categoría sugerida
-                            const categorySelect = document.getElementById('expenseCategory');
-                            categorySelect.value = suggestedCategory;
-                            // Disparar el evento change para generar los campos
-                            categorySelect.dispatchEvent(new Event('change'));
-
-                            // Esperar a que los campos se generen
-                            setTimeout(() => {
-                                // Rellenar los campos según la categoría
-                                const fields = categoryFields[suggestedCategory];
-                                fields.forEach(field => {
-                                    const element = document.getElementById(field.id);
-                                    if (element) {
-                                        switch (field.id) {
-                                            case 'date':
-                                                element.value = parsedData.date;
-                                                break;
-                                            case 'details':
-                                                element.value = parsedData.description;
-                                                break;
-                                            case 'place':
-                                                element.value = parsedData.place;
-                                                break;
-                                            case 'totalPrice':
-                                                element.value = parsedData.total;
-                                                break;
-                                            case 'meals':
-                                                element.value = parsedData.meals || 0;
-                                                break;
-                                            case 'accommodation':
-                                                element.value = parsedData.accommodation || 0;
-                                                break;
-                                            case 'transport':
-                                                element.value = parsedData.transport || 0;
-                                                break;
-                                            case 'airfares':
-                                            case 'airfare':
-                                                element.value = parsedData.airfares || 0;
-                                                break;
-                                            default:
-                                                if (parsedData[field.id] !== undefined) {
-                                                    element.value = parsedData[field.id];
-                                                }
-                                                break;
-                                        }
+                                {
+                                    inline_data: {  // Cambiar inlineData a inline_data
+                                        mime_type: file.type,  // Cambiar mimeType a mime_type
+                                        data: base64Image.split(',')[1]
                                     }
-                                });
-                            }, 100);
+                                }
+                            ]
+                        }]
+                    };
 
-                            showAlert("Éxito", "Datos del recibo auto-rellenados. Por favor, revísalos.");
+                    const apiUrl = `https://generativelanguage.googleapis.com/${CONFIG.API_VERSION}/models/${CONFIG.MODEL_NAME}:generateContent?key=${CONFIG.API_KEY}`;
 
-                        } catch (error) {
-                            console.error("Error al parsear los datos:", error);
-                            showAlert("Error", "No se pudieron extraer los datos del recibo. Por favor, rellena los campos manualmente.");
-                        } finally {
-                            showLoading(false);
-                            document.getElementById('extractedData').classList.remove('hidden');
+                    console.log("Enviando solicitud a API Gemini...");
+                    let response;
+                    try {
+                        response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (!response.ok) {
+                            const errorData = await response.json();
+                            console.error("Error detallado de la API:", errorData);
+                            
+                            // Mensajes de error más específicos
+                            if (errorData.error.code === 404) {
+                                throw new Error("Modelo de IA no disponible. Por favor, verifica la configuración de la API.");
+                            } else if (errorData.error.code === 403) {
+                                throw new Error("Error de autenticación. Verifica tu API key.");
+                            } else {
+                                throw new Error(`Error de la API: ${errorData.error.message}`);
+                            }
                         }
+
+                        const result = await response.json();
+                        console.log("Respuesta de la API:", result);
+
+                        let jsonString = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                        console.log("Texto recibido de la API:", jsonString);
+
+                        // Buscar el primer { y el último }
+                        const startIndex = jsonString.indexOf('{');
+                        const endIndex = jsonString.lastIndexOf('}');
+
+                        if (startIndex === -1 || endIndex === -1) {
+                            throw new Error("No se encontró un objeto JSON válido en la respuesta");
+                        }
+
+                        // Extraer solo el JSON
+                        jsonString = jsonString.substring(startIndex, endIndex + 1);
+                        console.log("JSON extraído:", jsonString);
+
+                        // Limpiar cualquier carácter que pueda quedar
+                        jsonString = jsonString
+                            .replace(/\n/g, '')
+                            .replace(/\r/g, '')
+                            .replace(/\\n/g, '')
+                            .replace(/\\r/g, '')
+                            .replace(/\s+/g, ' ')
+                            .trim();
+
+                        console.log("JSON limpio:", jsonString);
+
+                        let parsedData;
+                        try {
+                            parsedData = JSON.parse(jsonString);
+                        } catch (parseError) {
+                            console.error("Error al parsear JSON:", parseError);
+                            console.error("JSON que causó el error:", jsonString);
+                            throw new Error("No se pudo procesar la respuesta de la IA: formato inválido");
+                        }
+
+                        console.log("Datos parseados exitosamente:", parsedData);
+
+                        // Verificar que los datos necesarios estén presentes
+                        if (!parsedData.date || !parsedData.description) {
+                            throw new Error("Faltan datos requeridos en la respuesta de la IA");
+                        }
+
+                        // Inferir la categoría
+                        let suggestedCategory = '';
+                        if (parsedData.airfares > 0 || parsedData.accommodation > 0) {
+                            suggestedCategory = parsedData.isOverseas ? 'OVERSEAS - TRAVEL EXPENSES' : 'LOCAL - TRAVEL EXPENSES';
+                        } else if (parsedData.meals > 0 && parsedData.place?.toLowerCase().includes('restaurant')) {
+                            suggestedCategory = 'ENTERTAINMENT';
+                        } else {
+                            suggestedCategory = 'OTHERS';
+                        }
+
+                        console.log("Categoría sugerida:", suggestedCategory);
+
+                        // Establecer la categoría sugerida
+                        const categorySelect = document.getElementById('expenseCategory');
+                        categorySelect.value = suggestedCategory;
+                        // Disparar el evento change para generar los campos
+                        categorySelect.dispatchEvent(new Event('change'));
+
+                        // Esperar a que los campos se generen
+                        setTimeout(() => {
+                            // Rellenar los campos según la categoría
+                            const fields = categoryFields[suggestedCategory];
+                            fields.forEach(field => {
+                                const element = document.getElementById(field.id);
+                                if (element) {
+                                    switch (field.id) {
+                                        case 'date':
+                                            element.value = parsedData.date;
+                                            break;
+                                        case 'details':
+                                            element.value = parsedData.description;
+                                            break;
+                                        case 'place':
+                                            element.value = parsedData.place;
+                                            break;
+                                        case 'totalPrice':
+                                            element.value = parsedData.total;
+                                            break;
+                                        case 'meals':
+                                            element.value = parsedData.meals || 0;
+                                            break;
+                                        case 'accommodation':
+                                            element.value = parsedData.accommodation || 0;
+                                            break;
+                                        case 'transport':
+                                            element.value = parsedData.transport || 0;
+                                            break;
+                                        case 'airfares':
+                                        case 'airfare':
+                                            element.value = parsedData.airfares || 0;
+                                            break;
+                                        default:
+                                            if (parsedData[field.id] !== undefined) {
+                                                element.value = parsedData[field.id];
+                                            }
+                                            break;
+                                    }
+                                }
+                            });
+                        }, 100);
+
+                        showAlert("Éxito", "Datos del recibo auto-rellenados. Por favor, revísalos.");
+
+                    } catch (error) {
+                        console.error("Error al parsear los datos:", error);
+                        showAlert("Error", "No se pudieron extraer los datos del recibo. Por favor, rellena los campos manualmente.");
+                    } finally {
+                        showLoading(false);
+                        document.getElementById('extractedData').classList.remove('hidden');
+                    }
                 } catch (error) {
                     console.error("Error al procesar la imagen:", error);
                     showAlert("Error", "No se pudieron extraer los datos del recibo. Por favor, rellena los campos manualmente.");
