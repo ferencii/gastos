@@ -790,148 +790,93 @@ El JSON debe tener este formato exacto:
         showLoading(true);
 
         try {
-            // Obtener el proyecto actual
             const project = allProjects.find(p => p.id === currentProjectId);
             if (!project) throw new Error("Proyecto no encontrado");
 
-            // 1. Primero obtener el archivo template como blob
             const response = await fetch(CONFIG.EXCEL_TEMPLATE_URL);
             if (!response.ok) throw new Error('No se pudo cargar el template');
             const templateBlob = await response.blob();
+            const arrayBuffer = await templateBlob.arrayBuffer();
             
-            // 2. Crear una copia del archivo
-            const newBlob = templateBlob.slice(0, templateBlob.size, templateBlob.type);
-            const arrayBuffer = await newBlob.arrayBuffer();
-            
-            // 3. Cargar el workbook
             const workbook = new ExcelJS.Workbook();
             await workbook.xlsx.load(arrayBuffer);
 
-            // 4. Modificar solo los valores sin tocar las fórmulas
             const ccSheet = workbook.getWorksheet("Corporate Credit Card");
-            if (ccSheet) {
-                // Función auxiliar para encontrar el rango de filas de cada categoría
-                const findCategoryRange = (categoryName) => {
-                    let startRow = null;
-                    let endRow = null;
-                    
-                    // Buscar la categoría en la columna B
-                    for (let row = 1; row <= ccSheet.rowCount; row++) {
-                        const cellValue = ccSheet.getCell(row, 2).value; // Columna B
-                        
-                        if (cellValue === categoryName) {
-                            // La fila de datos empieza 2 filas después del título de la categoría (saltando "DATE")
-                            startRow = row + 2;
-                            
-                            // Buscar el final (donde hay celdas combinadas o la siguiente categoría)
-                            for (let r = startRow; r <= ccSheet.rowCount; r++) {
-                                const cell = ccSheet.getCell(r, 2);
-                                if (cell.isMerged || ['OVERSEAS - TRAVEL EXPENSES', 'LOCAL - TRAVEL EXPENSES', 'ENTERTAINMENT', 'OTHERS'].includes(cell.value)) {
-                                    endRow = r - 1;
-                                    break;
-                                }
-                            }
-                            break;
-                        }
-                    }
-                    return { startRow, endRow };
-                };
+            if (!ccSheet) throw new Error("No se encontró la hoja Corporate Credit Card");
 
-                // Procesar cada gasto según su categoría
-                const processedExpenses = {};
-                project.expenses.forEach(expense => {
-                    if (!processedExpenses[expense.category]) {
-                        processedExpenses[expense.category] = [];
-                    }
-                    processedExpenses[expense.category].push(expense);
-                });
+            // Mapeo de categorías a filas iniciales (ajusta estos números según tu template)
+            const categoryStartRows = {
+                'OVERSEAS - TRAVEL EXPENSES': 5,
+                'LOCAL - TRAVEL EXPENSES': 15,
+                'ENTERTAINMENT': 25,
+                'OTHERS': 35
+            };
 
-                // Procesar cada categoría
-                for (const [category, expenses] of Object.entries(processedExpenses)) {
-                    const range = findCategoryRange(category);
-                    if (!range.startRow || !range.endRow) continue;
-
-                    let currentRow = range.startRow;
-                    // Buscar la primera fila vacía en la categoría
-                    while (currentRow <= range.endRow && ccSheet.getRow(currentRow).getCell(2).value) {
-                        currentRow++;
-                    }
-
-                    const templateRow = ccSheet.getRow(range.startRow); // Usar la primera fila como plantilla
-
-                    expenses.forEach(expense => {
-                        // Si nos hemos quedado sin filas, insertamos una nueva
-                        if (currentRow > range.endRow) {
-                            ccSheet.spliceRows(currentRow, 0);
-                            const newRow = ccSheet.getRow(currentRow);
-
-                            // Copiar estilo y fórmulas de la plantilla
-                            templateRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-                                const newCell = newRow.getCell(colNumber);
-                                newCell.style = JSON.parse(JSON.stringify(cell.style));
-                                if (cell.formula) {
-                                    newCell.formula = cell.formula;
-                                }
-                            });
-                            newRow.height = templateRow.height;
-                            range.endRow++; // El rango de la categoría se ha expandido
-                        }
-
-                        const row = ccSheet.getRow(currentRow);
-                        
-                        // Rellenar datos
-                        row.getCell(1).value = new Date(expense.date);
-                        row.getCell(2).value = expense.details;
-                        row.getCell(11).value = expense.invoiceMissing ? 'X' : '';
-
-                        switch(category) {
-                            case 'OVERSEAS - TRAVEL EXPENSES':
-                                row.getCell(4).value = expense.purchaseOrder || '';
-                                row.getCell(5).value = expense.clientTraining || '';
-                                row.getCell(6).value = expense.meals || 0;
-                                row.getCell(7).value = expense.accommodation || 0;
-                                row.getCell(8).value = expense.airfares || 0;
-                                row.getCell(9).value = expense.transport || 0;
-                                row.getCell(10).value = expense.other || 0;
-                                row.getCell(12).value = expense.foreignCurrency || 0;
-                                break;
-                            case 'LOCAL - TRAVEL EXPENSES':
-                                row.getCell(4).value = expense.purchaseOrder || '';
-                                row.getCell(5).value = expense.clientTraining || '';
-                                row.getCell(6).value = expense.meals || 0;
-                                row.getCell(7).value = expense.accommodation || 0;
-                                row.getCell(8).value = expense.airfare || 0;
-                                row.getCell(9).value = expense.transport || 0;
-                                row.getCell(10).value = expense.other || 0;
-                                break;
-                            case 'ENTERTAINMENT':
-                                row.getCell(3).value = expense.quantity || 0;
-                                row.getCell(4).value = expense.traveling || '';
-                                row.getCell(5).value = expense.place || '';
-                                row.getCell(6).value = expense.totalPrice || 0;
-                                row.getCell(7).value = expense.staffMeal || 0;
-                                row.getCell(8).value = expense.clientMeal || 0;
-                                break;
-                            case 'OTHERS':
-                                row.getCell(5).value = expense.clientTraining || '';
-                                row.getCell(6).value = expense.purchaseOrder || '';
-                                row.getCell(7).value = expense.project || '';
-                                row.getCell(8).value = expense.totalPrice || 0;
-                                break;
-                        }
-
-                        currentRow++;
-                    });
+            // Agrupar gastos por categoría
+            const expensesByCategory = {};
+            project.expenses.forEach(expense => {
+                if (!expensesByCategory[expense.category]) {
+                    expensesByCategory[expense.category] = [];
                 }
-            }
-
-            // 5. Guardar el archivo
-            const buffer = await workbook.xlsx.writeBuffer({
-                filename: `${project.name}_reporte.xlsx`,
-                useStyles: true,
-                useSharedStrings: true
+                expensesByCategory[expense.category].push(expense);
             });
 
+            // Procesar cada categoría
+            for (const [category, expenses] of Object.entries(expensesByCategory)) {
+                let currentRow = categoryStartRows[category];
+
+                expenses.forEach((expense, index) => {
+                    const row = ccSheet.getRow(currentRow + index);
+
+                    // Datos comunes para todas las categorías
+                    row.getCell('A').value = new Date(expense.date); // Fecha
+                    row.getCell('B').value = expense.details; // Detalles
+                    row.getCell('K').value = expense.invoiceMissing ? 'X' : ''; // Invoice Missing
+
+                    // Datos específicos por categoría
+                    switch(category) {
+                        case 'OVERSEAS - TRAVEL EXPENSES':
+                        case 'LOCAL - TRAVEL EXPENSES':
+                            row.getCell('D').value = expense.purchaseOrder;
+                            row.getCell('E').value = expense.clientTraining;
+                            row.getCell('F').value = Number(expense.meals) || 0;
+                            row.getCell('G').value = Number(expense.accommodation) || 0;
+                            row.getCell('H').value = Number(expense.airfares || expense.airfare) || 0;
+                            row.getCell('I').value = Number(expense.transport) || 0;
+                            row.getCell('J').value = Number(expense.other) || 0;
+                            if (category === 'OVERSEAS - TRAVEL EXPENSES') {
+                                row.getCell('L').value = Number(expense.foreignCurrency) || 0;
+                            }
+                            break;
+
+                        case 'ENTERTAINMENT':
+                            row.getCell('C').value = Number(expense.quantity) || 0;
+                            row.getCell('D').value = expense.traveling;
+                            row.getCell('E').value = expense.place;
+                            row.getCell('F').value = Number(expense.totalPrice) || 0;
+                            row.getCell('G').value = Number(expense.staffMeal) || 0;
+                            row.getCell('H').value = Number(expense.clientMeal) || 0;
+                            break;
+
+                        case 'OTHERS':
+                            row.getCell('E').value = expense.clientTraining;
+                            row.getCell('F').value = expense.purchaseOrder;
+                            row.getCell('G').value = expense.project;
+                            row.getCell('H').value = Number(expense.totalPrice) || 0;
+                            break;
+                    }
+
+                    // Asegurarse de que los valores numéricos sean números
+                    row.eachCell(cell => {
+                        if (typeof cell.value === 'string' && !isNaN(cell.value)) {
+                            cell.value = Number(cell.value);
+                        }
+                    });
+                });
+            }
+
+            // Guardar el archivo
+            const buffer = await workbook.xlsx.writeBuffer();
             const blob = new Blob([buffer], { 
                 type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
             });
@@ -941,6 +886,8 @@ El JSON debe tener este formato exacto:
             a.download = `${project.name}_reporte.xlsx`;
             a.click();
             window.URL.revokeObjectURL(url);
+
+            showAlert("Éxito", "Reporte Excel generado correctamente");
 
         } catch (error) {
             console.error("Error generando Excel:", error);

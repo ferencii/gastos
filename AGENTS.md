@@ -4,23 +4,31 @@
 
 Este es un sistema de gestión de gastos empresariales que permite a los usuarios:
 
-- Crear proyectos de gastos
-- Capturar recibos usando la cámara o subiendo imágenes
-- Procesar automáticamente recibos usando IA (gemini-2.5-flash-preview-05-20)
-- Categorizar gastos en diferentes tipos
-- Exportar reportes a Excel
+- Crear proyectos de gastos.
+- Capturar recibos usando la cámara o subiendo imágenes.
+- Procesar automáticamente recibos usando IA para extraer datos.
+- Categorizar gastos en diferentes tipos.
+- Exportar reportes a un archivo Excel que mantiene el formato y las fórmulas de una plantilla predefinida.
+
+## Cómo Ejecutar el Proyecto
+
+1.  **Servidor Local:** Asegúrate de tener un servidor web local para servir los archivos estáticos (HTML, CSS, JS). Una forma sencilla es usar la extensión **Live Server** en Visual Studio Code.
+2.  **Iniciar la Aplicación:** Abre el archivo `gastos.html` en tu navegador utilizando el servidor local.
+3.  **Configurar API Key:** Antes de usar la funcionalidad de IA, es crucial reemplazar el valor de `API_KEY` en el objeto `CONFIG` dentro del archivo `gastos.html` con tu propia API key de Google Gemini.
 
 ## Estructura del Proyecto
 
 ### Tecnologías Principales
 
-- HTML/JavaScript (Frontend puro, sin framework)
-- Tailwind CSS para estilos
-- ExcelJS para generación de reportes
-- Google Gemini AI para procesamiento de imágenes
-- LocalStorage para persistencia de datos
+-   HTML/JavaScript (Frontend puro, sin framework)
+-   Tailwind CSS para estilos
+-   ExcelJS para generación de reportes
+-   Google Gemini AI para procesamiento de imágenes
+-   LocalStorage para persistencia de datos en el navegador
 
 ### Configuración
+
+El objeto `CONFIG` en `gastos.html` centraliza las variables clave del proyecto:
 
 ```javascript
 const CONFIG = {
@@ -34,10 +42,10 @@ const CONFIG = {
 
 ### Categorías de Gastos
 
-1. OVERSEAS - TRAVEL EXPENSES
-2. LOCAL - TRAVEL EXPENSES
-3. ENTERTAINMENT
-4. OTHERS
+1.  OVERSEAS - TRAVEL EXPENSES
+2.  LOCAL - TRAVEL EXPENSES
+3.  ENTERTAINMENT
+4.  OTHERS
 
 ### Estructura de Datos
 
@@ -56,8 +64,7 @@ const CONFIG = {
     date: String,
     details: String,
     receiptImage: String (base64),
-    // Campos adicionales según categoría
-    // ...
+    // ... y otros campos adicionales según la categoría
 }
 ```
 
@@ -65,91 +72,88 @@ const CONFIG = {
 
 ### 1. Gestión de Proyectos
 
-- Crear nuevos proyectos
-- Listar proyectos existentes
-- Eliminar proyectos
-- Ver detalles de proyecto
+-   Crear nuevos proyectos de gastos.
+-   Listar los proyectos existentes.
+-   Eliminar proyectos (junto con todos sus gastos asociados).
+-   Seleccionar un proyecto para ver sus detalles.
 
 ### 2. Gestión de Gastos
 
-- Añadir gastos a proyectos
-- Editar gastos existentes
-- Capturar imágenes de recibos
-- Procesamiento automático de recibos con IA
+-   Añadir nuevos gastos a un proyecto.
+-   Editar los gastos existentes.
+-   Capturar imágenes de recibos con la cámara del dispositivo o seleccionarlas desde el almacenamiento.
 
 ### 3. Procesamiento de Imágenes con IA
 
-El sistema utiliza gemini-2.5-flash-preview-05-20 para:
+El sistema utiliza el modelo `gemini-2.5-flash-preview-05-20` para analizar la imagen de un recibo y extraer la siguiente información en formato JSON:
+-   `date`: Fecha del gasto.
+-   `description`: Descripción o concepto del gasto.
+-   `meals`, `accommodation`, `transport`, `airfares`: Montos para diferentes sub-tipos de gasto.
+-   `total`: Monto total del recibo.
+-   `place`: Nombre del establecimiento.
+-   `isOverseas`: Un booleano para indicar si el gasto es internacional.
 
-- Extraer fecha
-- Extraer monto total
-- Identificar tipo de gasto
-- Extraer detalles específicos
+Posteriormente, el código de la aplicación utiliza esta información para:
+-   **Sugerir una categoría** (p. ej., si `airfares > 0`, sugiere "TRAVEL EXPENSES").
+-   **Auto-rellenar los campos** del formulario de nuevo gasto para agilizar la entrada de datos.
 
 ### 4. Exportación a Excel
 
-- Genera reportes Excel basados en template
-- Mantiene fórmulas y formato original
-- Organiza gastos por categorías
-- Incluye todos los detalles de gastos
+-   Genera un reporte en formato `.xlsx` basado en una plantilla (`gastos.xlsx`).
+-   Mantiene las fórmulas y el formato de la plantilla original.
+-   Busca la primera fila vacía dentro de la sección de cada categoría para añadir nuevos gastos.
+-   Si una sección está llena, inserta una nueva fila, replicando el estilo y las fórmulas de las filas existentes.
+
+## Historial de Cambios (realizado por el agente de IA)
+
+-   **Corrección de API de Gemini:** Se actualizó el endpoint de la API a `v1beta` para asegurar la compatibilidad con los modelos de Gemini.
+-   **Ajuste del Modelo de IA:** Se configuró el sistema para usar el modelo `gemini-2.5-flash-preview-05-20` según la preferencia del usuario.
+-   **Corrección de Errores de Sintaxis:** Se solucionó un error de `try...catch` mal estructurado que impedía la ejecución del código de procesamiento de imágenes.
+-   **Mejora del Auto-rellenado del Formulario:** Se implementó una lógica de mapeo robusta para asegurar que los datos extraídos por la IA (ej. `description`, `total`) se asignen correctamente a los campos del formulario (ej. `details`, `totalPrice`).
+-   **Arreglo de la Exportación a Excel:** Se reescribió la funcionalidad de exportación para localizar correctamente la primera fila vacía en cada categoría y para insertar nuevas filas (preservando formato y fórmulas) cuando el espacio se agota.
 
 ## Áreas de Mejora Potencial
 
-1. Backend Integration
-
-- Implementar un backend para persistencia de datos
-- Añadir autenticación de usuarios
-- Almacenamiento en la nube para imágenes
-
-2. UI/UX Enhancements
-
-- Añadir modo oscuro
-- Mejorar responsive design
-- Implementar drag & drop para imágenes
-
-3. Funcionalidades Adicionales
-
-- Múltiples divisas
-- Reportes analíticos
-- Exportación a PDF
-- Compartir proyectos entre usuarios
-
-4. Optimizaciones
-
-- Compresión de imágenes
-- Caché de procesamiento IA
-- Modo offline
+1.  **Backend y Persistencia de Datos:**
+    -   Implementar un backend (ej. Node.js, Python) para persistencia de datos en una base de datos real.
+    -   Añadir autenticación de usuarios.
+    -   Almacenamiento en la nube para las imágenes de los recibos (ej. S3, Firebase Storage).
+2.  **Mejoras de UI/UX:**
+    -   Añadir un modo oscuro.
+    -   Mejorar el diseño responsive para una mejor experiencia en tablets.
+    -   Implementar drag & drop para subir imágenes de recibos en escritorio.
+3.  **Funcionalidades Adicionales:**
+    -   Soporte para múltiples divisas con conversión automática.
+    -   Dashboard con reportes analíticos y gráficos.
+    -   Exportación de reportes a formato PDF.
+    -   Funcionalidad para compartir proyectos entre usuarios.
+4.  **Optimizaciones:**
+    -   Compresión de imágenes en el cliente antes de subirlas para ahorrar ancho de banda y almacenamiento.
+    -   Implementar un sistema de caché para los resultados de la IA y evitar procesar la misma imagen varias veces.
+    -   Mejorar la aplicación para que tenga funcionalidades offline usando Service Workers.
 
 ## Guía de Desarrollo
 
 ### Añadir Nueva Categoría de Gasto
 
-1. Agregar definición en `categoryFields`
-2. Actualizar lógica de exportación Excel
-3. Modificar UI para mostrar nuevos campos
+1.  Agregar la nueva categoría a la definición del objeto `categoryFields` en `gastos.html`.
+2.  Asegurarse de que la plantilla de Excel (`gastos.xlsx`) contenga la nueva sección de categoría con el formato adecuado.
+3.  Actualizar la lógica de exportación a Excel si la nueva categoría tiene una estructura de columnas única.
 
 ### Modificar Procesamiento IA
 
-1. Actualizar prompt en `receiptImageInput` event listener
-2. Modificar mapeo de respuesta IA a campos
-3. Actualizar validaciones de datos
-
-### Añadir Nuevo Formato de Reporte
-
-1. Crear nuevo template Excel
-2. Implementar nueva lógica de exportación
-3. Actualizar UI para nuevo formato
+1.  Actualizar el `prompt` en el `event listener` del input `receiptImageInput` para pedir a la IA los nuevos campos.
+2.  Modificar el mapeo de la respuesta de la IA a los campos del formulario en el `setTimeout` dentro del mismo `event listener`.
 
 ## Consideraciones de Seguridad
 
-- Validar tipos de archivo
-- Sanitizar datos de entrada
-- Limitar tamaño de imágenes
-- Implementar rate limiting
+-   **Validación de Archivos:** Validar siempre el tipo y tamaño de los archivos subidos.
+-   **Sanitización de Datos:** Aunque no hay un backend, es una buena práctica sanitizar los datos que se muestran para prevenir ataques XSS si la aplicación evoluciona.
+-   **Gestión de API Keys:** La API key no debe estar hardcodeada en el código en un entorno de producción. Debería ser gestionada a través de un backend o variables de entorno.
 
 ## Dependencias Externas
 
-- TailwindCSS
-- ExcelJS
-- XLSX
-- Google Gemini AI API
+-   **TailwindCSS:** Framework de CSS para un diseño rápido y moderno.
+-   **ExcelJS:** Librería para leer, manipular y escribir archivos de Excel.
+-   **XLSX (SheetJS):** Utilizada para funcionalidades básicas de Excel (aunque ExcelJS es la principal para la escritura).
+-   **Google Gemini AI API:** Servicio de IA para el procesamiento de imágenes.
