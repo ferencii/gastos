@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Aplicación de Gastos de Empresa</title>
+    <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,AAAA">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
@@ -441,13 +442,19 @@
                 console.log("Iniciando proceso de IA...");
 
                 try {
-                    const prompt = `Actúa como un asistente para informes de gastos. Analiza la siguiente imagen de un recibo y extrae:
-                        - fecha (formato YYYY-MM-DD)
-                        - descripción detallada
-                        - importes desglosados si los hay (meals, accommodation, transport, etc.)
-                        - importe total
-                        - lugar o establecimiento
-                        Responde con un objeto JSON con estas claves. Si no encuentras algún dato, usa cadena vacía o 0.`;
+                    const prompt = `Analiza esta imagen de recibo y devuelve un objeto JSON con EXACTAMENTE este formato (sin markdown, sin texto adicional):
+{
+    "date": "YYYY-MM-DD",
+    "description": "descripción del gasto",
+    "meals": 0,
+    "accommodation": 0,
+    "transport": 0,
+    "airfares": 0,
+    "total": 0,
+    "place": "nombre del establecimiento",
+    "isOverseas": false
+}
+IMPORTANTE: Responde SOLO con el JSON, sin texto adicional, sin \`\`\`json ni otros marcadores.`;
 
                     console.log("Preparando payload para API...");
                     
@@ -459,333 +466,372 @@
                                     inlineData: {
                                         mimeType: file.type,
                                         data: base64Image.split(',')[1] 
+                                    }
+                                }
+                            ]
+                        }]
+                    };
+
+                    const apiKey = "AIzaSyAr0XLuj3QTWA866ezyoJY0JdjA8SInQ_Y"; // Reemplaza esto con tu API key real
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${apiKey}`;
+
+                    console.log("Enviando solicitud a API Gemini...");
+
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    console.log("Respuesta recibida, estado:", response.status);
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error("Error detallado de la API:", errorText);
+                        throw new Error(`API request failed with status ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    console.log("Respuesta de la API:", result);
+
+                    let jsonString = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (!jsonString) {
+                        throw new Error("No se recibió respuesta válida de la API");
+                    }
+
+                    console.log("Texto recibido de la API:", jsonString);
+
+                    // Limpiar el texto de cualquier formato markdown o caracteres especiales
+                    jsonString = jsonString
+                        .replace(/```json\s*/g, '')    // Elimina ```json
+                        .replace(/```\s*/g, '')        // Elimina ```
+                        .replace(/^\s+|\s+$/g, '')     // Elimina espacios en blanco al inicio y final
+                        .replace(/\\n/g, '')           // Elimina saltos de línea escapados
+                        .replace(/\n/g, '')            // Elimina saltos de línea normales
+                        .trim();                       // Trim final
+
+                    console.log("JSON limpio:", jsonString);
+
+                    // Intentar parsear el JSON con manejo de errores detallado
+                    let parsedData;
+                    try {
+                        // Si el string no empieza con {, intentar encontrar el primer {
+                        if (!jsonString.startsWith('{')) {
+                            const startIndex = jsonString.indexOf('{');
+                            if (startIndex !== -1) {
+                                jsonString = jsonString.substring(startIndex);
                             }
                         }
-                    ]
-                }]
-            };
-
-            const apiKey = "AIzaSyAr0XLuj3QTWA866ezyoJY0JdjA8SInQ_Y";
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-
-            console.log("Enviando solicitud a API Gemini...");
-
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            console.log("Respuesta recibida, estado:", response.status);
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error("Error detallado de la API:", errorText);
-                throw new Error(`API request failed with status ${response.status}`);
-            }
-
-            const result = await response.json();
-            console.log("Respuesta de la API:", result);
-
-            const jsonString = result.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!jsonString) {
-                throw new Error("No se recibió respuesta válida de la API");
-            }
-
-            console.log("JSON recibido:", jsonString);
-            const parsedData = JSON.parse(jsonString);
-            console.log("Datos parseados:", parsedData);
-
-            // Inferir la categoría
-            let suggestedCategory = '';
-            if (parsedData.airfares > 0 || parsedData.accommodation > 0) {
-                suggestedCategory = parsedData.isOverseas ? 'OVERSEAS - TRAVEL EXPENSES' : 'LOCAL - TRAVEL EXPENSES';
-            } else if (parsedData.meals > 0 && parsedData.place?.toLowerCase().includes('restaurant')) {
-                suggestedCategory = 'ENTERTAINMENT';
-            } else {
-                suggestedCategory = 'OTHERS';
-            }
-
-            console.log("Categoría sugerida:", suggestedCategory);
-
-            // Establecer la categoría sugerida
-            const categorySelect = document.getElementById('expenseCategory');
-            categorySelect.value = suggestedCategory;
-            // Disparar el evento change para generar los campos
-            categorySelect.dispatchEvent(new Event('change'));
-
-            // Esperar a que los campos se generen
-            setTimeout(() => {
-                // Rellenar los campos según la categoría
-                const fields = categoryFields[suggestedCategory];
-                fields.forEach(field => {
-                    const element = document.getElementById(field.id);
-                    if (element) {
-                        switch (field.id) {
-                            case 'date':
-                                element.value = parsedData.date;
-                                break;
-                            case 'details':
-                                element.value = parsedData.description;
-                                break;
-                            case 'place':
-                                element.value = parsedData.place;
-                                break;
-                            case 'totalPrice':
-                                element.value = parsedData.total;
-                                break;
-                            case 'meals':
-                                element.value = parsedData.meals || 0;
-                                break;
-                            case 'accommodation':
-                                element.value = parsedData.accommodation || 0;
-                                break;
-                            case 'transport':
-                                element.value = parsedData.transport || 0;
-                                break;
-                            case 'airfares':
-                            case 'airfare':
-                                element.value = parsedData.airfares || 0;
-                                break;
-                            default:
-                                if (parsedData[field.id] !== undefined) {
-                                    element.value = parsedData[field.id];
-                                }
-                        }
+                        parsedData = JSON.parse(jsonString);
+                    } catch (parseError) {
+                        console.error("Error al parsear JSON:", parseError);
+                        console.error("JSON que causó el error:", jsonString);
+                        throw new Error(`Error al procesar la respuesta de la IA: ${parseError.message}`);
                     }
-                });
-            }, 100);
 
-            showAlert("Éxito", "Datos del recibo auto-rellenados. Por favor, revísalos.");
+                    console.log("Datos parseados exitosamente:", parsedData);
 
-        } catch (error) {
-            console.error("Error processing image with AI:", error);
-            showAlert("Error", "No se pudieron extraer los datos del recibo. Por favor, rellena los campos manualmente.");
-        } finally {
-            showLoading(false);
-            document.getElementById('extractedData').classList.remove('hidden');
-        }
-    };
-    reader.readAsDataURL(file);
-});
+                    // Verificar que los datos necesarios estén presentes
+                    if (!parsedData.date || !parsedData.description) {
+                        throw new Error("Faltan datos requeridos en la respuesta de la IA");
+                    }
 
-document.getElementById('expenseCategory').addEventListener('change', function(e) {
-    const category = e.target.value;
-    const fieldsContainer = document.getElementById('categoryFields');
-    fieldsContainer.innerHTML = '';
+                    // Inferir la categoría
+                    let suggestedCategory = '';
+                    if (parsedData.airfares > 0 || parsedData.accommodation > 0) {
+                        suggestedCategory = parsedData.isOverseas ? 'OVERSEAS - TRAVEL EXPENSES' : 'LOCAL - TRAVEL EXPENSES';
+                    } else if (parsedData.meals > 0 && parsedData.place?.toLowerCase().includes('restaurant')) {
+                        suggestedCategory = 'ENTERTAINMENT';
+                    } else {
+                        suggestedCategory = 'OTHERS';
+                    }
 
-    if (category && categoryFields[category]) {
-        categoryFields[category].forEach(field => {
-            const fieldDiv = document.createElement('div');
-            
-            if (field.type === 'select') {
-                fieldDiv.innerHTML = `
-                    <label class="block text-sm font-medium text-gray-700 mb-1">${field.label}</label>
-                    <select id="${field.id}" class="input-text">
-                        <option value="" disabled selected>Seleccionar</option>
-                        ${field.options.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
-                    </select>`;
-            } else if (field.type === 'checkbox') {
-                fieldDiv.innerHTML = `
-                    <label class="flex items-center space-x-2">
-                        <input type="checkbox" id="${field.id}" class="rounded">
-                        <span class="text-sm font-medium text-gray-700">${field.label}</span>
-                    </label>`;
-            } else {
-                fieldDiv.innerHTML = `
-                    <label class="block text-sm font-medium text-gray-700 mb-1">${field.label}</label>
-                    <input type="${field.type}" id="${field.id}" class="input-text">`;
+                    console.log("Categoría sugerida:", suggestedCategory);
+
+                    // Establecer la categoría sugerida
+                    const categorySelect = document.getElementById('expenseCategory');
+                    categorySelect.value = suggestedCategory;
+                    // Disparar el evento change para generar los campos
+                    categorySelect.dispatchEvent(new Event('change'));
+
+                    // Esperar a que los campos se generen
+                    setTimeout(() => {
+                        // Rellenar los campos según la categoría
+                        const fields = categoryFields[suggestedCategory];
+                        fields.forEach(field => {
+                            const element = document.getElementById(field.id);
+                            if (element) {
+                                switch (field.id) {
+                                    case 'date':
+                                        element.value = parsedData.date;
+                                        break;
+                                    case 'details':
+                                        element.value = parsedData.description;
+                                        break;
+                                    case 'place':
+                                        element.value = parsedData.place;
+                                        break;
+                                    case 'totalPrice':
+                                        element.value = parsedData.total;
+                                        break;
+                                    case 'meals':
+                                        element.value = parsedData.meals || 0;
+                                        break;
+                                    case 'accommodation':
+                                        element.value = parsedData.accommodation || 0;
+                                        break;
+                                    case 'transport':
+                                        element.value = parsedData.transport || 0;
+                                        break;
+                                    case 'airfares':
+                                    case 'airfare':
+                                        element.value = parsedData.airfares || 0;
+                                        break;
+                                    default:
+                                        if (parsedData[field.id] !== undefined) {
+                                            element.value = parsedData[field.id];
+                                        }
+                                }
+                            }
+                        });
+                    }, 100);
+
+                    showAlert("Éxito", "Datos del recibo auto-rellenados. Por favor, revísalos.");
+
+                } catch (error) {
+                    console.error("Error al parsear los datos:", error);
+                    showAlert("Error", "No se pudieron extraer los datos del recibo. Por favor, rellena los campos manualmente.");
+                } finally {
+                    showLoading(false);
+                    document.getElementById('extractedData').classList.remove('hidden');
+                }
+            } catch (error) {
+                handleAIError(error);
+            } finally {
+                showLoading(false);
+                document.getElementById('extractedData').classList.remove('hidden');
             }
-            
-            fieldsContainer.appendChild(fieldDiv);
-        });
-    }
-});
+        };
+        reader.readAsDataURL(file);
+    });
 
-// Modificar la función saveExpenseBtn para recoger todos los campos
-document.getElementById('saveExpenseBtn').addEventListener('click', () => {
-    const category = document.getElementById('expenseCategory').value;
-    if (!category) {
-        showAlert("Error", "Por favor selecciona una categoría");
-        return;
-    }
+    document.getElementById('expenseCategory').addEventListener('change', function(e) {
+        const category = e.target.value;
+        const fieldsContainer = document.getElementById('categoryFields');
+        fieldsContainer.innerHTML = '';
 
-    const expenseData = {
-        category: category,
-        receiptImage: document.getElementById('saveExpenseBtn').dataset.imageData || ''
-    };
-
-    // Recoger todos los campos según la categoría
-    categoryFields[category].forEach(field => {
-        const element = document.getElementById(field.id);
-        if (element) {
-            if (field.type === 'checkbox') {
-                expenseData[field.id] = element.checked;
-            } else {
-                expenseData[field.id] = element.value;
-            }
+        if (category && categoryFields[category]) {
+            categoryFields[category].forEach(field => {
+                const fieldDiv = document.createElement('div');
+                
+                if (field.type === 'select') {
+                    fieldDiv.innerHTML = `
+                        <label class="block text-sm font-medium text-gray-700 mb-1">${field.label}</label>
+                        <select id="${field.id}" class="input-text">
+                            <option value="" disabled selected>Seleccionar</option>
+                            ${field.options.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
+                        </select>`;
+                } else if (field.type === 'checkbox') {
+                    fieldDiv.innerHTML = `
+                        <label class="flex items-center space-x-2">
+                            <input type="checkbox" id="${field.id}" class="rounded">
+                            <span class="text-sm font-medium text-gray-700">${field.label}</span>
+                        </label>`;
+                } else {
+                    fieldDiv.innerHTML = `
+                        <label class="block text-sm font-medium text-gray-700 mb-1">${field.label}</label>
+                        <input type="${field.type}" id="${field.id}" class="input-text">`;
+                }
+                
+                fieldsContainer.appendChild(fieldDiv);
+            });
         }
     });
 
-    // Validar campos requeridos
-    if (!expenseData.date || !expenseData.details) {
-        showAlert("Campos Incompletos", "Por favor, completa todos los campos requeridos.");
-        return;
-    }
-
-    addExpenseToProject(expenseData);
-});
-        
-// Function to convert Base64 to an ArrayBuffer
-function base64ToArrayBuffer(base64) {
-    const binaryString = window.atob(base64.split(',')[1]);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-}
-
-// Download Excel File
-document.getElementById('downloadExcelBtn').addEventListener('click', async () => {
-    showLoading(true);
-
-    try {
-        // Obtener el proyecto actual
-        const project = allProjects.find(p => p.id === currentProjectId);
-        if (!project) throw new Error("Proyecto no encontrado");
-
-        // 1. Primero obtener el archivo template como blob
-        const response = await fetch(EXCEL_TEMPLATE_URL);
-        if (!response.ok) throw new Error('No se pudo cargar el template');
-        const templateBlob = await response.blob();
-        
-        // 2. Crear una copia del archivo
-        const newBlob = templateBlob.slice(0, templateBlob.size, templateBlob.type);
-        const arrayBuffer = await newBlob.arrayBuffer();
-        
-        // 3. Cargar el workbook
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.load(arrayBuffer);
-
-        // 4. Modificar solo los valores sin tocar las fórmulas
-        const ccSheet = workbook.getWorksheet("Corporate Credit Card");
-        if (ccSheet) {
-            // Función auxiliar para encontrar el rango de filas de cada categoría
-            const findCategoryRange = (categoryName) => {
-                let startRow = null;
-                let endRow = null;
-                
-                // Buscar la categoría en la columna B
-                for (let row = 1; row <= ccSheet.rowCount; row++) {
-                    const cellValue = ccSheet.getCell(row, 2).value; // Columna B
-                    
-                    if (cellValue === categoryName) {
-                        // La fila de datos empieza 2 filas después del título de la categoría (saltando "DATE")
-                        startRow = row + 2;
-                        
-                        // Buscar el final (donde hay celdas combinadas o la siguiente categoría)
-                        for (let r = startRow; r <= ccSheet.rowCount; r++) {
-                            const cell = ccSheet.getCell(r, 2);
-                            if (cell.isMerged || ['OVERSEAS - TRAVEL EXPENSES', 'LOCAL - TRAVEL EXPENSES', 'ENTERTAINMENT', 'OTHERS'].includes(cell.value)) {
-                                endRow = r - 1;
-                                break;
-                            }
-                        }
-                        break;
-                    }
-                }
-                return { startRow, endRow };
-            };
-
-            // Procesar cada gasto según su categoría
-            const processedExpenses = {};
-            project.expenses.forEach(expense => {
-                if (!processedExpenses[expense.category]) {
-                    processedExpenses[expense.category] = [];
-                }
-                processedExpenses[expense.category].push(expense);
-            });
-
-            // Procesar cada categoría
-            for (const [category, expenses] of Object.entries(processedExpenses)) {
-                const range = findCategoryRange(category);
-                if (!range.startRow || !range.endRow) continue;
-
-                // Encontrar la primera fila vacía en la categoría
-                let currentRow = range.startRow;
-                let templateRow = range.startRow; // Guardar una fila template para copiar
-
-                expenses.forEach(expense => {
-                    // Si no hay más filas disponibles, crear una nueva
-                    if (currentRow > range.endRow) {
-                        // Copiar la fila template con su formato y fórmulas
-                        const newRow = ccSheet.addRow([], currentRow);
-                        const sourceRow = ccSheet.getRow(templateRow);
-                        
-                        // Copiar formato y fórmulas
-                        newRow.height = sourceRow.height;
-                        sourceRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-                            const newCell = newRow.getCell(colNumber);
-                            newCell.style = JSON.parse(JSON.stringify(cell.style));
-                            if (cell.formula) {
-                                newCell.formula = cell.formula;
-                            }
-                        });
-                    }
-
-                    const row = ccSheet.getRow(currentRow);
-                    
-                    // Insertar datos básicos
-                    row.getCell(1).value = new Date(expense.date);
-                    row.getCell(2).value = expense.description;
-
-                    // Insertar monto en la columna correcta según la categoría
-                    switch(category) {
-                        case 'OVERSEAS - TRAVEL EXPENSES':
-                            row.getCell(9).value = Number(expense.amount);
-                            break;
-                        case 'LOCAL - TRAVEL EXPENSES':
-                            row.getCell(4).value = Number(expense.amount);
-                            break;
-                        case 'ENTERTAINMENT':
-                            row.getCell(5).value = Number(expense.amount);
-                            break;
-                        case 'OTHERS':
-                            row.getCell(9).value = Number(expense.amount);
-                            break;
-                    }
-
-                    currentRow++;
-                });
-            }
+    // Modificar la función saveExpenseBtn para recoger todos los campos
+    document.getElementById('saveExpenseBtn').addEventListener('click', () => {
+        const category = document.getElementById('expenseCategory').value;
+        if (!category) {
+            showAlert("Error", "Por favor selecciona una categoría");
+            return;
         }
 
-        // 5. Guardar el archivo
-        const buffer = await workbook.xlsx.writeBuffer({
-            filename: `${project.name}_reporte.xlsx`,
-            useStyles: true,
-            useSharedStrings: true
+        const expenseData = {
+            category: category,
+            receiptImage: document.getElementById('saveExpenseBtn').dataset.imageData || ''
+        };
+
+        // Recoger todos los campos según la categoría
+        categoryFields[category].forEach(field => {
+            const element = document.getElementById(field.id);
+            if (element) {
+                if (field.type === 'checkbox') {
+                    expenseData[field.id] = element.checked;
+                } else {
+                    expenseData[field.id] = element.value;
+                }
+            }
         });
 
-        const blob = new Blob([buffer], { 
-            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
-        });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${project.name}_reporte.xlsx`;
-        a.click();
-        window.URL.revokeObjectURL(url);
+        // Validar campos requeridos
+        if (!expenseData.date || !expenseData.details) {
+            showAlert("Campos Incompletos", "Por favor, completa todos los campos requeridos.");
+            return;
+        }
 
-    } catch (error) {
-        console.error("Error generando Excel:", error);
-        showAlert("Error", `No se pudo generar el archivo Excel: ${error.message}`);
-    } finally {
-        showLoading(false);
+        addExpenseToProject(expenseData);
+    });
+        
+    // Function to convert Base64 to an ArrayBuffer
+    function base64ToArrayBuffer(base64) {
+        const binaryString = window.atob(base64.split(',')[1]);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
     }
-});
+
+    // Download Excel File
+    document.getElementById('downloadExcelBtn').addEventListener('click', async () => {
+        showLoading(true);
+
+        try {
+            // Obtener el proyecto actual
+            const project = allProjects.find(p => p.id === currentProjectId);
+            if (!project) throw new Error("Proyecto no encontrado");
+
+            // 1. Primero obtener el archivo template como blob
+            const response = await fetch(EXCEL_TEMPLATE_URL);
+            if (!response.ok) throw new Error('No se pudo cargar el template');
+            const templateBlob = await response.blob();
+            
+            // 2. Crear una copia del archivo
+            const newBlob = templateBlob.slice(0, templateBlob.size, templateBlob.type);
+            const arrayBuffer = await newBlob.arrayBuffer();
+            
+            // 3. Cargar el workbook
+            const workbook = new ExcelJS.Workbook();
+            await workbook.xlsx.load(arrayBuffer);
+
+            // 4. Modificar solo los valores sin tocar las fórmulas
+            const ccSheet = workbook.getWorksheet("Corporate Credit Card");
+            if (ccSheet) {
+                // Función auxiliar para encontrar el rango de filas de cada categoría
+                const findCategoryRange = (categoryName) => {
+                    let startRow = null;
+                    let endRow = null;
+                    
+                    // Buscar la categoría en la columna B
+                    for (let row = 1; row <= ccSheet.rowCount; row++) {
+                        const cellValue = ccSheet.getCell(row, 2).value; // Columna B
+                        
+                        if (cellValue === categoryName) {
+                            // La fila de datos empieza 2 filas después del título de la categoría (saltando "DATE")
+                            startRow = row + 2;
+                            
+                            // Buscar el final (donde hay celdas combinadas o la siguiente categoría)
+                            for (let r = startRow; r <= ccSheet.rowCount; r++) {
+                                const cell = ccSheet.getCell(r, 2);
+                                if (cell.isMerged || ['OVERSEAS - TRAVEL EXPENSES', 'LOCAL - TRAVEL EXPENSES', 'ENTERTAINMENT', 'OTHERS'].includes(cell.value)) {
+                                    endRow = r - 1;
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    return { startRow, endRow };
+                };
+
+                // Procesar cada gasto según su categoría
+                const processedExpenses = {};
+                project.expenses.forEach(expense => {
+                    if (!processedExpenses[expense.category]) {
+                        processedExpenses[expense.category] = [];
+                    }
+                    processedExpenses[expense.category].push(expense);
+                });
+
+                // Procesar cada categoría
+                for (const [category, expenses] of Object.entries(processedExpenses)) {
+                    const range = findCategoryRange(category);
+                    if (!range.startRow || !range.endRow) continue;
+
+                    // Encontrar la primera fila vacía en la categoría
+                    let currentRow = range.startRow;
+                    let templateRow = range.startRow; // Guardar una fila template para copiar
+
+                    expenses.forEach(expense => {
+                        // Si no hay más filas disponibles, crear una nueva
+                        if (currentRow > range.endRow) {
+                            // Copiar la fila template con su formato y fórmulas
+                            const newRow = ccSheet.addRow([], currentRow);
+                            const sourceRow = ccSheet.getRow(templateRow);
+                            
+                            // Copiar formato y fórmulas
+                            newRow.height = sourceRow.height;
+                            sourceRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+                                const newCell = newRow.getCell(colNumber);
+                                newCell.style = JSON.parse(JSON.stringify(cell.style));
+                                if (cell.formula) {
+                                    newCell.formula = cell.formula;
+                                }
+                            });
+                        }
+
+                        const row = ccSheet.getRow(currentRow);
+                        
+                        // Insertar datos básicos
+                        row.getCell(1).value = new Date(expense.date);
+                        row.getCell(2).value = expense.description;
+
+                        // Insertar monto en la columna correcta según la categoría
+                        switch(category) {
+                            case 'OVERSEAS - TRAVEL EXPENSES':
+                                row.getCell(9).value = Number(expense.amount);
+                                break;
+                            case 'LOCAL - TRAVEL EXPENSES':
+                                row.getCell(4).value = Number(expense.amount);
+                                break;
+                            case 'ENTERTAINMENT':
+                                row.getCell(5).value = Number(expense.amount);
+                                break;
+                            case 'OTHERS':
+                                row.getCell(9).value = Number(expense.amount);
+                                break;
+                        }
+
+                        currentRow++;
+                    });
+                }
+            }
+
+            // 5. Guardar el archivo
+            const buffer = await workbook.xlsx.writeBuffer({
+                filename: `${project.name}_reporte.xlsx`,
+                useStyles: true,
+                useSharedStrings: true
+            });
+
+            const blob = new Blob([buffer], { 
+                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+            });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${project.name}_reporte.xlsx`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+
+        } catch (error) {
+            console.error("Error generando Excel:", error);
+            showAlert("Error", `No se pudo generar el archivo Excel: ${error.message}`);
+        } finally {
+            showLoading(false);
+        }
+    });
     </script>
 </body>
 </html>
