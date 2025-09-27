@@ -849,21 +849,68 @@ El JSON debe tener este formato exacto:
 
             // Función para insertar una nueva fila con el formato correcto
             function insertNewRow(afterRowNum) {
-                ccSheet.insertRow(afterRowNum + 1, undefined, 'i+');
+                // Insertar la nueva fila después de la fila especificada
+                const newRowNumber = afterRowNum + 1;
+                ccSheet.insertRow(newRowNumber, 'i+');
                 
-                // Copiar formato y fórmulas de la fila anterior
                 const sourceRow = ccSheet.getRow(afterRowNum);
-                const newRow = ccSheet.getRow(afterRowNum + 1);
+                const newRow = ccSheet.getRow(newRowNumber);
                 
+                // Copiar estilos y valores celda por celda
                 sourceRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
                     const newCell = newRow.getCell(colNumber);
+                    
+                    // Copiar estilo
                     newCell.style = JSON.parse(JSON.stringify(cell.style));
+                    
+                    // Copiar formato numérico si existe
+                    if (cell.numFmt) {
+                        newCell.numFmt = cell.numFmt;
+                    }
+                    
+                    // Manejar fórmulas
                     if (cell.formula) {
-                        newCell.formula = cell.formula;
+                        try {
+                            // Ajustar la fórmula para la nueva fila
+                            const adjustedFormula = cell.formula.replace(
+                                /([A-Za-z]+)(\d+)/g,
+                                (match, col, row) => {
+                                    const newRow = parseInt(row) + 1;
+                                    return `${col}${newRow}`;
+                                }
+                            );
+                            newCell.value = { formula: adjustedFormula };
+                        } catch (error) {
+                            console.warn(`No se pudo copiar la fórmula en la columna ${colNumber}:`, error);
+                            // Si falla la copia de la fórmula, copiar solo el valor
+                            newCell.value = cell.value;
+                        }
+                    } else {
+                        // Copiar valor si no es una fórmula
+                        newCell.value = cell.value;
                     }
                 });
                 
-                return afterRowNum + 1;
+                // Ajustar altura de fila si es necesario
+                if (sourceRow.height) {
+                    newRow.height = sourceRow.height;
+                }
+                
+                // Copiar fusiones de celdas si existen
+                ccSheet.mergeCells.forEach(merge => {
+                    if (merge.start.row === afterRowNum) {
+                        const colStart = merge.start.col;
+                        const colEnd = merge.end.col;
+                        ccSheet.mergeCells(
+                            newRowNumber,
+                            colStart,
+                            newRowNumber,
+                            colEnd
+                        );
+                    }
+                });
+                
+                return newRowNumber;
             }
 
             // Función para insertar imagen en la hoja de soporte
