@@ -794,7 +794,6 @@ El JSON debe tener este formato exacto:
             if (!project) throw new Error("Proyecto no encontrado");
 
             const response = await fetch(CONFIG.EXCEL_TEMPLATE_URL);
-            if (!response.ok) throw new Error('No se pudo cargar el template');
             const templateBlob = await response.blob();
             const arrayBuffer = await templateBlob.arrayBuffer();
             
@@ -802,77 +801,165 @@ El JSON debe tener este formato exacto:
             await workbook.xlsx.load(arrayBuffer);
 
             const ccSheet = workbook.getWorksheet("Corporate Credit Card");
-            if (!ccSheet) throw new Error("No se encontró la hoja Corporate Credit Card");
+            const supportSheet = workbook.getWorksheet("LOCAL TE support doc");
+            
+            if (!ccSheet) throw new Error("Hoja Corporate Credit Card no encontrada");
+            if (!supportSheet) throw new Error("Hoja LOCAL TE support doc no encontrada");
 
-            // Mapeo de categorías a filas iniciales (ajusta estos números según tu template)
-            const categoryStartRows = {
-                'OVERSEAS - TRAVEL EXPENSES': 5,
-                'LOCAL - TRAVEL EXPENSES': 15,
-                'ENTERTAINMENT': 25,
-                'OTHERS': 35
-            };
-
-            // Agrupar gastos por categoría
-            const expensesByCategory = {};
-            project.expenses.forEach(expense => {
-                if (!expensesByCategory[expense.category]) {
-                    expensesByCategory[expense.category] = [];
-                }
-                expensesByCategory[expense.category].push(expense);
-            });
-
-            // Procesar cada categoría
-            for (const [category, expenses] of Object.entries(expensesByCategory)) {
-                let currentRow = categoryStartRows[category];
-
-                expenses.forEach((expense, index) => {
-                    const row = ccSheet.getRow(currentRow + index);
-
-                    // Datos comunes para todas las categorías
-                    row.getCell('A').value = new Date(expense.date); // Fecha
-                    row.getCell('B').value = expense.details; // Detalles
-                    row.getCell('K').value = expense.invoiceMissing ? 'X' : ''; // Invoice Missing
-
-                    // Datos específicos por categoría
-                    switch(category) {
-                        case 'OVERSEAS - TRAVEL EXPENSES':
-                        case 'LOCAL - TRAVEL EXPENSES':
-                            row.getCell('D').value = expense.purchaseOrder;
-                            row.getCell('E').value = expense.clientTraining;
-                            row.getCell('F').value = Number(expense.meals) || 0;
-                            row.getCell('G').value = Number(expense.accommodation) || 0;
-                            row.getCell('H').value = Number(expense.airfares || expense.airfare) || 0;
-                            row.getCell('I').value = Number(expense.transport) || 0;
-                            row.getCell('J').value = Number(expense.other) || 0;
-                            if (category === 'OVERSEAS - TRAVEL EXPENSES') {
-                                row.getCell('L').value = Number(expense.foreignCurrency) || 0;
+            // Función para encontrar el rango de una categoría
+            function findCategoryRange(categoryName) {
+                let startRow = null;
+                let endRow = null;
+                
+                // Buscar la categoría en la columna B
+                for (let i = 1; i <= ccSheet.rowCount; i++) {
+                    const cell = ccSheet.getCell(`B${i}`);
+                    
+                    if (cell.value === categoryName) {
+                        // La fila de datos comienza después de la fila "DATE"
+                        startRow = i + 2;
+                        
+                        // Buscar el final (donde las columnas B, C, D están combinadas)
+                        for (let j = startRow; j <= ccSheet.rowCount; j++) {
+                            const cellB = ccSheet.getCell(`B${j}`);
+                            const cellC = ccSheet.getCell(`C${j}`);
+                            const cellD = ccSheet.getCell(`D${j}`);
+                            
+                            if (cellB.isMerged && cellC.isMerged && cellD.isMerged) {
+                                endRow = j - 1;
+                                break;
                             }
-                            break;
-
-                        case 'ENTERTAINMENT':
-                            row.getCell('C').value = Number(expense.quantity) || 0;
-                            row.getCell('D').value = expense.traveling;
-                            row.getCell('E').value = expense.place;
-                            row.getCell('F').value = Number(expense.totalPrice) || 0;
-                            row.getCell('G').value = Number(expense.staffMeal) || 0;
-                            row.getCell('H').value = Number(expense.clientMeal) || 0;
-                            break;
-
-                        case 'OTHERS':
-                            row.getCell('E').value = expense.clientTraining;
-                            row.getCell('F').value = expense.purchaseOrder;
-                            row.getCell('G').value = expense.project;
-                            row.getCell('H').value = Number(expense.totalPrice) || 0;
-                            break;
-                    }
-
-                    // Asegurarse de que los valores numéricos sean números
-                    row.eachCell(cell => {
-                        if (typeof cell.value === 'string' && !isNaN(cell.value)) {
-                            cell.value = Number(cell.value);
                         }
-                    });
+                        break;
+                    }
+                }
+                return { startRow, endRow };
+            }
+
+            // Función para encontrar la primera fila vacía en un rango
+            function findFirstEmptyRow(startRow, endRow) {
+                for (let i = startRow; i <= endRow; i++) {
+                    const dateCell = ccSheet.getCell(`B${i}`);
+                    if (!dateCell.value) {
+                        return i;
+                    }
+                }
+                return null;
+            }
+
+            // Función para insertar una nueva fila con el formato correcto
+            function insertNewRow(afterRowNum) {
+                ccSheet.insertRow(afterRowNum + 1, undefined, 'i+');
+                
+                // Copiar formato y fórmulas de la fila anterior
+                const sourceRow = ccSheet.getRow(afterRowNum);
+                const newRow = ccSheet.getRow(afterRowNum + 1);
+                
+                sourceRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+                    const newCell = newRow.getCell(colNumber);
+                    newCell.style = JSON.parse(JSON.stringify(cell.style));
+                    if (cell.formula) {
+                        newCell.formula = cell.formula;
+                    }
                 });
+                
+                return afterRowNum + 1;
+            }
+
+            // Función para insertar imagen en la hoja de soporte
+            function insertReceiptImage(imageData, rowIndex) {
+                if (!imageData) return;
+                
+                // Encontrar el siguiente espacio disponible
+                let imgCol = 1;
+                let imgRow = 1;
+                const maxImagesPerRow = 2;
+                const imageHeight = 300;
+                const imageWidth = 400;
+                
+                // Buscar espacio libre
+                const existingImages = supportSheet.getImages();
+                if (existingImages.length > 0) {
+                    const lastImage = existingImages[existingImages.length - 1];
+                    imgCol = lastImage.range.br.col + 1;
+                    imgRow = lastImage.range.br.row;
+                    
+                    if (imgCol > maxImagesPerRow) {
+                        imgCol = 1;
+                        imgRow = lastImage.range.br.row + imageHeight;
+                    }
+                }
+
+                const imageId = workbook.addImage({
+                    base64: imageData,
+                    extension: 'png',
+                });
+
+                supportSheet.addImage(imageId, {
+                    tl: { col: imgCol, row: imgRow },
+                    ext: { width: imageWidth, height: imageHeight }
+                });
+            }
+
+            // Procesar cada gasto
+            for (const expense of project.expenses) {
+                const range = findCategoryRange(expense.category);
+                if (!range.startRow || !range.endRow) {
+                    console.error(`Rango no encontrado para categoría ${expense.category}`);
+                    continue;
+                }
+
+                let rowToUse = findFirstEmptyRow(range.startRow, range.endRow);
+                if (!rowToUse) {
+                    rowToUse = insertNewRow(range.endRow);
+                }
+
+                const row = ccSheet.getRow(rowToUse);
+
+                // Datos comunes
+                row.getCell('B').value = new Date(expense.date);
+                row.getCell('C').value = expense.details;
+
+                // Datos específicos por categoría
+                switch(expense.category) {
+                    case 'OVERSEAS - TRAVEL EXPENSES':
+                    case 'LOCAL - TRAVEL EXPENSES':
+                        row.getCell('D').value = expense.purchaseOrder;
+                        row.getCell('E').value = expense.clientTraining;
+                        row.getCell('F').value = Number(expense.meals) || 0;
+                        row.getCell('G').value = Number(expense.accommodation) || 0;
+                        row.getCell('H').value = Number(expense.airfares || expense.airfare) || 0;
+                        row.getCell('I').value = Number(expense.transport) || 0;
+                        row.getCell('J').value = Number(expense.other) || 0;
+                        row.getCell('K').value = expense.invoiceMissing ? 'X' : '';
+                        row.getCell('L').value = Number(expense.foreignCurrency) || 0;
+                        break;
+
+                    case 'ENTERTAINMENT':
+                        row.getCell('D').value = Number(expense.quantity) || 0;
+                        row.getCell('E').value = expense.traveling;
+                        row.getCell('F').value = expense.place;
+                        row.getCell('G').value = Number(expense.totalPrice) || 0;
+                        row.getCell('H').value = Number(expense.staffMeal) || 0;
+                        row.getCell('I').value = Number(expense.clientMeal) || 0;
+                        row.getCell('K').value = expense.invoiceMissing ? 'X' : '';
+                        row.getCell('L').value = Number(expense.foreignCurrency) || 0;
+                        break;
+
+                    case 'OTHERS':
+                        row.getCell('E').value = expense.clientTraining;
+                        row.getCell('F').value = expense.purchaseOrder;
+                        row.getCell('G').value = expense.project;
+                        row.getCell('H').value = Number(expense.totalPrice) || 0;
+                        row.getCell('K').value = expense.invoiceMissing ? 'X' : '';
+                        row.getCell('L').value = Number(expense.foreignCurrency) || 0;
+                        break;
+                }
+
+                // Insertar imagen del recibo si existe
+                if (expense.receiptImage) {
+                    insertReceiptImage(expense.receiptImage, rowToUse);
+                }
             }
 
             // Guardar el archivo
