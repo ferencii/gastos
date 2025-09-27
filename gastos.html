@@ -6,6 +6,7 @@
     <title>Aplicación de Gastos de Empresa</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
         body {
@@ -452,42 +453,21 @@
         document.getElementById('downloadExcelBtn').addEventListener('click', async () => {
             showLoading(true);
 
-            const project = allProjects.find(p => p.id === currentProjectId);
-            if (!project) {
-                console.error("Project not found.");
-                showLoading(false);
-                return;
-            }
-            const expenses = project.expenses;
-
             try {
-                // Fetch the Excel template file
-                const excelFileResponse = await fetch(EXCEL_TEMPLATE_URL);
-                if (!excelFileResponse.ok) {
-                    throw new Error(`Failed to fetch Excel template: ${excelFileResponse.statusText}`);
-                }
-                const excelFileBlob = await excelFileResponse.blob();
-                const arrayBuffer = await excelFileBlob.arrayBuffer();
+                // Cargar la plantilla
+                const response = await fetch(EXCEL_TEMPLATE_URL);
+                const templateBuffer = await response.arrayBuffer();
+                
+                // Crear nuevo workbook desde la plantilla
+                const workbook = new ExcelJS.Workbook();
+                await workbook.xlsx.load(templateBuffer);
 
-                // Read the Excel workbook with full formatting options
-                const workbook = XLSX.read(arrayBuffer, { 
-                    type: 'array',
-                    cellFormula: true,  // Mantener fórmulas
-                    cellStyles: true,   // Mantener estilos
-                    bookVBA: true,      // Mantener macros si existen
-                    cellNF: true,       // Mantener formato numérico
-                    cellDates: true     // Mantener fechas
-                });
+                const project = allProjects.find(p => p.id === currentProjectId);
+                if (!project) throw new Error("Proyecto no encontrado");
 
-                // Process "Corporate Credit Card" sheet
-                const ccSheet = workbook.Sheets["Corporate Credit Card"];
+                // Procesar hoja "Corporate Credit Card"
+                const ccSheet = workbook.getWorksheet("Corporate Credit Card");
                 if (ccSheet) {
-                    const overseasExpenses = expenses.filter(e => e.category === 'OVERSEAS - TRAVEL EXPENSES');
-                    const localExpenses = expenses.filter(e => e.category === 'LOCAL - TRAVEL EXPENSES');
-                    const entertainmentExpenses = expenses.filter(e => e.category === 'ENTERTAINMENT');
-                    const otherExpenses = expenses.filter(e => e.category === 'OTHERS');
-                    
-                    // The starting row indices for each section are based on the CSV data
                     const rowIndices = {
                         'OVERSEAS - TRAVEL EXPENSES': 9,
                         'LOCAL - TRAVEL EXPENSES': 18,
@@ -495,137 +475,81 @@
                         'OTHERS': 34
                     };
 
-                    const sheetData = XLSX.utils.sheet_to_json(ccSheet, { header: 1, range: 0, raw: true });
+                    // Agrupar gastos por categoría
+                    const expensesByCategory = {
+                        'OVERSEAS - TRAVEL EXPENSES': project.expenses.filter(e => e.category === 'OVERSEAS - TRAVEL EXPENSES'),
+                        'LOCAL - TRAVEL EXPENSES': project.expenses.filter(e => e.category === 'LOCAL - TRAVEL EXPENSES'),
+                        'ENTERTAINMENT': project.expenses.filter(e => e.category === 'ENTERTAINMENT'),
+                        'OTHERS': project.expenses.filter(e => e.category === 'OTHERS')
+                    };
 
-                    overseasExpenses.forEach((expense, i) => {
-                        sheetData[rowIndices['OVERSEAS - TRAVEL EXPENSES'] + i] = [
-                            expense.date, // Assuming date is in column B
-                            expense.description, // Assuming description is in column C
-                            '', // Purchase Order is empty
-                            '', // Client Training is empty
-                            '', // Meals
-                            '', // Accomodation
-                            '', // Airfares
-                            '', // Transport
-                            expense.amount // Other is in column J
-                        ];
-                    });
-                    
-                    localExpenses.forEach((expense, i) => {
-                        sheetData[rowIndices['LOCAL - TRAVEL EXPENSES'] + i] = [
-                            expense.date,
-                            expense.description,
-                            '', // Purchase Order
-                            expense.amount, // Meals
-                            '', // Accomodation
-                            '', // Airfare
-                            '', // Transport
-                            '' // Other
-                        ];
-                    });
-                    
-                    entertainmentExpenses.forEach((expense, i) => {
-                        sheetData[rowIndices['ENTERTAINMENT'] + i] = [
-                            expense.date,
-                            expense.description,
-                            '', // Quantity
-                            '', // Place
-                            expense.amount, // Total Price
-                            '', // Staff Meal
-                            '', // Client Meal
-                            '', // GST
-                            '' // Marked "X"
-                        ];
-                    });
+                    // Rellenar cada sección
+                    for (const [category, expenses] of Object.entries(expensesByCategory)) {
+                        let startRow = rowIndices[category];
+                        expenses.forEach((expense, index) => {
+                            const row = ccSheet.getRow(startRow + index);
+                            // Mantener el formato copiando el estilo de la fila template
+                            const templateRow = ccSheet.getRow(startRow);
+                            row.style = JSON.parse(JSON.stringify(templateRow.style));
 
-                    otherExpenses.forEach((expense, i) => {
-                        sheetData[rowIndices['OTHERS'] + i] = [
-                            expense.date,
-                            expense.description,
-                            '', // Purchase Order
-                            '', // Client Training
-                            '', // Meals
-                            '', // Accomodation
-                            '', // Airfares
-                            '', // Transport
-                            expense.amount // Other
-                        ];
-                    });
-                    
-                    // Write back to sheet
-                    const newSheetCC = XLSX.utils.aoa_to_sheet(sheetData);
-                    workbook.Sheets["Corporate Credit Card"] = newSheetCC;
+                            // Rellenar datos
+                            row.getCell(1).value = new Date(expense.date);
+                            row.getCell(2).value = expense.description;
+                            
+                            // Colocar el monto en la columna correcta según la categoría
+                            if (category === 'OVERSEAS - TRAVEL EXPENSES') {
+                                row.getCell(9).value = expense.amount;
+                            } else if (category === 'LOCAL - TRAVEL EXPENSES') {
+                                row.getCell(4).value = expense.amount;
+                            } else if (category === 'ENTERTAINMENT') {
+                                row.getCell(5).value = expense.amount;
+                            } else {
+                                row.getCell(9).value = expense.amount;
+                            }
+                        });
+                    }
                 }
 
-                // Process "OTHERS support doc" sheet and insert images
-                const supportSheet = workbook.Sheets["OTHERS support doc"];
+                // Procesar hoja "OTHERS support doc"
+                const supportSheet = workbook.getWorksheet("OTHERS support doc");
                 if (supportSheet) {
-                    const supportData = XLSX.utils.sheet_to_json(supportSheet, { header: 1, raw: true });
-                    const images = [];
-                    let currentRow = 4; // Assuming row 5 is the first row for data
-                    
-                    expenses.forEach((expense, index) => {
-                        const expenseRowData = [
-                            '',
-                            index + 1,
-                            expense.date,
-                            expense.description,
-                            '',
-                            expense.amount
-                        ];
-                        
-                        // Add expense data to the sheet data array
-                        if (supportData[currentRow]) {
-                            supportData[currentRow] = expenseRowData;
-                        } else {
-                            supportData.push(expenseRowData);
-                        }
-                        
+                    let currentRow = 4;
+                    project.expenses.forEach((expense, index) => {
+                        const row = supportSheet.getRow(currentRow);
+                        row.getCell(2).value = index + 1;
+                        row.getCell(3).value = new Date(expense.date);
+                        row.getCell(4).value = expense.description;
+                        row.getCell(6).value = expense.amount;
+
                         if (expense.receiptImage) {
-                            images.push({
-                                data: expense.receiptImage.split(',')[1],
-                                type: 'image/jpeg', // Assume jpeg as default
-                                row: currentRow + 2,
-                                col: 2
+                            const imageId = workbook.addImage({
+                                base64: expense.receiptImage,
+                                extension: 'jpeg',
+                            });
+
+                            supportSheet.addImage(imageId, {
+                                tl: { col: 1.5, row: currentRow + 1 },
+                                br: { col: 5, row: currentRow + 4 }
                             });
                         }
-                        currentRow += 5; // Move to the next block of 5 rows (1 for data, 4 for image)
+                        
+                        currentRow += 5;
                     });
-                    
-                    const newSheetSupport = XLSX.utils.aoa_to_sheet(supportData);
-                    
-                    // Insert images into the sheet
-                    newSheetSupport['!images'] = [];
-                    images.forEach(img => {
-                        newSheetSupport['!images'].push({
-                            data: img.data,
-                            'content-type': img.type,
-                            width: 250,
-                            height: 350,
-                            from: { c: img.col, r: img.row },
-                            to: { c: img.col + 3, r: img.row + 4 }
-                        });
-                    });
-                    
-                    workbook.Sheets["OTHERS support doc"] = newSheetSupport;
                 }
 
-                // Al guardar el archivo, usar opciones que preserven el formato
-                const writeOpts = { 
-                    bookType: 'xlsx',
-                    type: 'array',
-                    cellStyles: true,
-                    compression: true,
-                    bookSST: true
-                };
+                // Guardar el archivo
+                const buffer = await workbook.xlsx.writeBuffer();
+                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${project.name}_reporte.xlsx`;
+                a.click();
+                window.URL.revokeObjectURL(url);
 
-                // Generate and download the file
-                const projectName = document.getElementById('projectTitle').textContent;
-                XLSX.writeFile(workbook, `${projectName}_reporte.xlsx`, writeOpts);
-                
             } catch (error) {
-                console.error("Error generating Excel:", error);
-                showAlert("Error", `No se pudo generar el archivo Excel. Asegúrate de que el archivo 'gastos.xlsx' exista en el mismo directorio. ${error.message}`);
+                console.error("Error generando Excel:", error);
+                showAlert("Error", `No se pudo generar el archivo Excel: ${error.message}`);
             } finally {
                 showLoading(false);
             }
