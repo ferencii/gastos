@@ -1,5 +1,5 @@
 export const CONFIG = {
-    API_KEY: "TU_API_KEY",
+    API_KEY: "AIzaSyAr0XLuj3QTWA866ezyoJY0JdjA8SInQ_Y",
     STORAGE_KEY: 'gastos_empresa_proyectos',
     EXCEL_TEMPLATE_URL: 'gastos.xlsx'
 };
