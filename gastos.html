@@ -137,8 +137,11 @@
             <h1 class="text-3xl sm:text-4xl font-extrabold text-center mb-6">Añadir Nuevo Gasto</h1>
             <div class="card space-y-4">
                 <input type="file" id="receiptImageInput" accept="image/*" capture="camera" class="hidden" />
-                <button id="captureImageBtn" class="btn-primary w-full">
+                <button id="captureImageBtn" class="btn-primary w-full mb-4">
                     Tomar Foto del Recibo
+                </button>
+                <button id="selectImageBtn" class="btn-secondary w-full">
+                    Seleccionar Imagen del Dispositivo
                 </button>
                 <img id="receiptPreview" class="rounded-xl w-full max-h-64 object-contain mx-auto border border-gray-300 hidden" />
                 <div id="extractedData" class="space-y-4 hidden">
@@ -405,8 +408,16 @@
 
         document.getElementById('addExpenseBtn').addEventListener('click', showAddExpenseView);
 
-        // This part is modified to include AI call with error handling.
+        // Modificar los event listeners para la captura de imagen
         document.getElementById('captureImageBtn').addEventListener('click', () => {
+            // Configurar para usar la cámara
+            document.getElementById('receiptImageInput').setAttribute('capture', 'environment');
+            document.getElementById('receiptImageInput').click();
+        });
+
+        document.getElementById('selectImageBtn').addEventListener('click', () => {
+            // Quitar el atributo capture para permitir selección de archivo
+            document.getElementById('receiptImageInput').removeAttribute('capture');
             document.getElementById('receiptImageInput').click();
         });
 
