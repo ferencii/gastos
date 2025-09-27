@@ -851,36 +851,39 @@ El JSON debe tener este formato exacto:
                     const range = findCategoryRange(category);
                     if (!range.startRow || !range.endRow) continue;
 
-                    // Encontrar la primera fila vacía en la categoría
                     let currentRow = range.startRow;
-                    let templateRow = range.startRow; // Guardar una fila template para copiar
+                    // Buscar la primera fila vacía en la categoría
+                    while (currentRow <= range.endRow && ccSheet.getRow(currentRow).getCell(2).value) {
+                        currentRow++;
+                    }
+
+                    const templateRow = ccSheet.getRow(range.startRow); // Usar la primera fila como plantilla
 
                     expenses.forEach(expense => {
-                        // Si no hay más filas disponibles, crear una nueva
+                        // Si nos hemos quedado sin filas, insertamos una nueva
                         if (currentRow > range.endRow) {
-                            // Copiar la fila template con su formato y fórmulas
-                            const newRow = ccSheet.addRow([], currentRow);
-                            const sourceRow = ccSheet.getRow(templateRow);
-                            
-                            // Copiar formato y fórmulas
-                            newRow.height = sourceRow.height;
-                            sourceRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+                            ccSheet.spliceRows(currentRow, 0);
+                            const newRow = ccSheet.getRow(currentRow);
+
+                            // Copiar estilo y fórmulas de la plantilla
+                            templateRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
                                 const newCell = newRow.getCell(colNumber);
                                 newCell.style = JSON.parse(JSON.stringify(cell.style));
                                 if (cell.formula) {
                                     newCell.formula = cell.formula;
                                 }
                             });
+                            newRow.height = templateRow.height;
+                            range.endRow++; // El rango de la categoría se ha expandido
                         }
 
                         const row = ccSheet.getRow(currentRow);
                         
-                        // Datos básicos que todas las categorías tienen
+                        // Rellenar datos
                         row.getCell(1).value = new Date(expense.date);
                         row.getCell(2).value = expense.details;
                         row.getCell(11).value = expense.invoiceMissing ? 'X' : '';
 
-                        // Datos específicos por categoría
                         switch(category) {
                             case 'OVERSEAS - TRAVEL EXPENSES':
                                 row.getCell(4).value = expense.purchaseOrder || '';
