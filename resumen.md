@@ -13,6 +13,7 @@
 - Se añadió un modal de previsualización del Excel para validar los datos por categoría antes de descargar la plantilla.
 - El formulario de nuevo gasto preselecciona la categoría **OTHERS** y despliega sus campos para acelerar la captura móvil.
 - La exportación a Excel limpia y prepara los rangos antes de escribir, evitando textos residuales y celdas fusionadas que ocultaban información.
+- Las imágenes de los recibos dentro de cada gasto ahora se amplían en un modal al hacer clic, facilitando su consulta.
 
 ## Próximos pasos sugeridos
 - Implementar un backend que oculte la API key y permita sincronizar los proyectos entre dispositivos.
