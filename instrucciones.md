@@ -22,6 +22,7 @@ No hay archivos JavaScript o CSS externos: todo el comportamiento y los estilos 
 - El formulario de alta se genera dinámicamente en función de la categoría seleccionada (`categoryFields`).
 - Se soportan las categorías **OVERSEAS - TRAVEL EXPENSES**, **LOCAL - TRAVEL EXPENSES**, **ENTERTAINMENT** y **OTHERS**, cada una con sus campos particulares.
 - Los gastos se pueden crear y editar; al editar se precargan los datos e imagen previamente guardados.
+- Desde la vista de detalle es posible eliminar un gasto individual desde su tarjeta, previa confirmación, lo que actualiza inmediatamente la lista y el estado persistido.
 
 ### Captura de recibos y auto-relleno
 - Los botones **Tomar Foto del Recibo** y **Seleccionar Imagen del Dispositivo** utilizan el `<input type="file" capture="camera">` para obtener la imagen y mostrarla en la vista previa.
@@ -54,6 +55,7 @@ No hay archivos JavaScript o CSS externos: todo el comportamiento y los estilos 
 - El script busca la primera fila vacía dentro del rango de la categoría; si no existe, inserta una nueva fila clonando estilos, formatos y fórmulas del template.
 - Los campos se escriben en las columnas `B` a `L` según la categoría y se mantiene el formato de fecha cuando procede.
 - Las imágenes de los recibos se insertan en la hoja **LOCAL TE support doc** usando `ExcelJS.Workbook.addImage`, respetando un espaciado mínimo para evitar solapamientos (`rowPadding = 2`, `minimumRowSpacing = 20`).
+- Existe un botón de **Previsualizar Excel** que abre un modal con tablas por categoría (mismo orden y columnas que la exportación) para validar rápidamente que ningún gasto falte antes de descargar la plantilla.
 
 ## Configuración e inicio
 1. Servir el proyecto con cualquier servidor de archivos estáticos (por ejemplo, la extensión **Live Server** de VS Code). También es posible abrir `gastos.html` directamente en el navegador si este permite acceder a `localStorage` y a `fetch` sobre archivos locales.
