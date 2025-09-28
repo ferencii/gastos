@@ -1,0 +1,16 @@
+# Resumen del proyecto de gestión de gastos
+
+## Estado actual
+- Aplicación SPA en `gastos.html` con Tailwind desde CDN y lógica en JavaScript vanilla.
+- Persistencia en `localStorage` bajo la clave `gastos_empresa_proyectos`.
+- Procesamiento opcional de recibos mediante la API de Google Gemini para auto-rellenar campos.
+- Exportación de datos a la plantilla `gastos.xlsx`, incluyendo inserción de imágenes en la hoja **LOCAL TE support doc**.
+
+## Cambios recientes
+- Documentación técnica actualizada para reflejar la arquitectura real y el flujo completo de la aplicación.
+- Eliminación de `js/config.js` y `styles.css` al confirmarse que no eran utilizados.
+
+## Próximos pasos sugeridos
+- Implementar un backend que oculte la API key y permita sincronizar los proyectos entre dispositivos.
+- Añadir validaciones adicionales en el formulario de gastos (por ejemplo, límites numéricos y formatos monetarios).
+- Revisar la experiencia móvil para optimizar la captura de recibos y la navegación entre vistas.
