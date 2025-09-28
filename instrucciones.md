@@ -20,6 +20,7 @@ No hay archivos JavaScript o CSS externos: todo el comportamiento y los estilos 
 ### Gestión de gastos
 - Cada proyecto almacena un arreglo `expenses` con los gastos asociados.
 - El formulario de alta se genera dinámicamente en función de la categoría seleccionada (`categoryFields`).
+- Al crear un gasto nuevo la categoría **OTHERS** se carga por defecto y el formulario se despliega automáticamente para agilizar la captura.
 - Se soportan las categorías **OVERSEAS - TRAVEL EXPENSES**, **LOCAL - TRAVEL EXPENSES**, **ENTERTAINMENT** y **OTHERS**, cada una con sus campos particulares.
 - Los gastos se pueden crear y editar; al editar se precargan los datos e imagen previamente guardados.
 - Desde la vista de detalle es posible eliminar un gasto individual desde su tarjeta, previa confirmación, lo que actualiza inmediatamente la lista y el estado persistido.
@@ -52,7 +53,8 @@ No hay archivos JavaScript o CSS externos: todo el comportamiento y los estilos 
 
 ### Exportación a Excel
 - Al pulsar **Descargar Excel** se carga la plantilla `gastos.xlsx`, se localiza la hoja **Corporate Credit Card** y se identifica el bloque correspondiente a cada categoría.
-- El script busca la primera fila vacía dentro del rango de la categoría; si no existe, inserta una nueva fila clonando estilos, formatos y fórmulas del template.
+- Antes de escribir se limpian completamente las filas de datos de la categoría (valores, combinaciones y estado de filas) para evitar que queden textos guía como "Insert line" o celdas fusionadas que oculten información.
+- El script busca la primera fila vacía dentro del rango de la categoría; si no existe, inserta una nueva fila clonando estilos, formatos y fórmulas del template y la prepara antes de insertar los valores.
 - Los campos se escriben en las columnas `B` a `L` según la categoría y se mantiene el formato de fecha cuando procede.
 - Las imágenes de los recibos se insertan en la hoja **LOCAL TE support doc** usando `ExcelJS.Workbook.addImage`, respetando un espaciado mínimo para evitar solapamientos (`rowPadding = 2`, `minimumRowSpacing = 20`).
 - Existe un botón de **Previsualizar Excel** que abre un modal con tablas por categoría (mismo orden y columnas que la exportación) para validar rápidamente que ningún gasto falte antes de descargar la plantilla.
