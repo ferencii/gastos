@@ -153,7 +153,9 @@
                         <option value="ENTERTAINMENT">ENTERTAINMENT</option>
                         <option value="OTHERS">OTHERS</option>
                     </select>
-                    
+
+                    <button id="autoFillBtn" class="btn-secondary w-full" disabled>Auto-Rellenar</button>
+
                     <div id="categoryFields" class="space-y-4">
                         <!-- Los campos se generarán dinámicamente aquí -->
                     </div>
@@ -309,6 +311,15 @@
                         document.getElementById('receiptPreview').src = expenseToEdit.receiptImage;
                         document.getElementById('receiptPreview').classList.remove('hidden');
                         document.getElementById('saveExpenseBtn').dataset.imageData = expenseToEdit.receiptImage;
+                        const mimeMatch = expenseToEdit.receiptImage.match(/^data:(.*?);/);
+                        const autoFillBtn = document.getElementById('autoFillBtn');
+                        if (autoFillBtn) {
+                            if (mimeMatch && mimeMatch[1]) {
+                                autoFillBtn.dataset.imageMimeType = mimeMatch[1];
+                            } else {
+                                delete autoFillBtn.dataset.imageMimeType;
+                            }
+                        }
                     }
                 }, 100);
             } else {
@@ -318,8 +329,11 @@
                 saveBtn.textContent = 'Guardar Gasto';
                 document.getElementById('expenseCategory').value = '';
                 document.getElementById('categoryFields').innerHTML = '';
+                document.getElementById('autoFillBtn').disabled = true;
+                delete document.getElementById('autoFillBtn').dataset.imageMimeType;
+                delete document.getElementById('saveExpenseBtn').dataset.imageData;
             }
-            
+
             showView('addExpenseView');
         }
 
@@ -562,16 +576,41 @@
 
             const reader = new FileReader();
             reader.onload = async (e) => {
-                showLoading(true);
                 try {
                     const base64Image = e.target.result;
                     document.getElementById('receiptPreview').src = base64Image;
                     document.getElementById('receiptPreview').classList.remove('hidden');
                     document.getElementById('saveExpenseBtn').dataset.imageData = base64Image;
+                    document.getElementById('autoFillBtn').dataset.imageMimeType = file.type;
 
-                    console.log("Iniciando proceso de IA...");
+                    console.log("Imagen cargada. Listo para auto-rellenar bajo demanda.");
+                } catch (error) {
+                    console.error("Error al cargar la imagen:", error);
+                    showAlert("Error", "No se pudo cargar la imagen seleccionada. Inténtalo de nuevo.");
+                }
+            };
+            reader.readAsDataURL(file);
+        });
 
-                    const prompt = `Analiza esta imagen de recibo y responde SOLO con un objeto JSON válido, sin ningún texto adicional ni marcadores.
+        async function autoFillExpenseFields() {
+            const category = document.getElementById('expenseCategory').value;
+            if (!category) {
+                showAlert("Error", "Por favor selecciona una categoría antes de auto-rellenar.");
+                return;
+            }
+
+            const imageData = document.getElementById('saveExpenseBtn').dataset.imageData;
+            const mimeType = document.getElementById('autoFillBtn').dataset.imageMimeType;
+
+            if (!imageData || !mimeType) {
+                showAlert("Error", "Debes capturar o seleccionar una imagen antes de usar el auto-relleno.");
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                const prompt = `Analiza esta imagen de recibo y responde SOLO con un objeto JSON válido, sin ningún texto adicional ni marcadores.
 El JSON debe tener este formato exacto:
 {
 "date": "YYYY-MM-DD",
@@ -585,121 +624,116 @@ El JSON debe tener este formato exacto:
 "isOverseas": false
 }`;
 
-                    console.log("Preparando payload para API...");
-                    const payload = {
-                        model: CONFIG.MODEL_NAME,
-                        contents: [{
-                            parts: [
-                                { text: prompt },
-                                {
-                                    inline_data: {
-                                        mime_type: file.type,
-                                        data: base64Image.split(',')[1]
-                                    }
-                                }
-                            ]
-                        }]
-                    };
-
-                    const apiUrl = `https://generativelanguage.googleapis.com/${CONFIG.API_VERSION}/models/${CONFIG.MODEL_NAME}:generateContent?key=${CONFIG.API_KEY}`;
-
-                    console.log("Enviando solicitud a API Gemini...");
-                    const response = await fetch(apiUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-
-                    if (!response.ok) {
-                        const errorData = await response.json();
-                        console.error("Error detallado de la API:", errorData);
-                        throw new Error(`Error de la API: ${errorData.error.message}`);
-                    }
-
-                    const result = await response.json();
-                    console.log("Respuesta de la API:", result);
-
-                    let jsonString = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                    console.log("Texto recibido de la API:", jsonString);
-
-                    const startIndex = jsonString.indexOf('{');
-                    const endIndex = jsonString.lastIndexOf('}');
-
-                    if (startIndex === -1 || endIndex === -1) {
-                        throw new Error("No se encontró un objeto JSON válido en la respuesta");
-                    }
-
-                    jsonString = jsonString.substring(startIndex, endIndex + 1);
-                    console.log("JSON extraído:", jsonString);
-
-                    let parsedData;
-                    try {
-                        parsedData = JSON.parse(jsonString);
-                    } catch (parseError) {
-                        console.error("Error al parsear JSON:", parseError, "JSON String:", jsonString);
-                        throw new Error("No se pudo procesar la respuesta de la IA: formato JSON inválido.");
-                    }
-
-                    console.log("Datos parseados exitosamente:", parsedData);
-
-                    if (!parsedData.date || !parsedData.description) {
-                        throw new Error("Faltan datos requeridos en la respuesta de la IA");
-                    }
-
-                    let suggestedCategory = 'OTHERS';
-                    if (parsedData.airfares > 0 || parsedData.accommodation > 0) {
-                        suggestedCategory = parsedData.isOverseas ? 'OVERSEAS - TRAVEL EXPENSES' : 'LOCAL - TRAVEL EXPENSES';
-                    } else if (parsedData.meals > 0 && parsedData.place) {
-                        suggestedCategory = 'ENTERTAINMENT';
-                    }
-                    
-                    console.log("Categoría sugerida:", suggestedCategory);
-
-                    const categorySelect = document.getElementById('expenseCategory');
-                    categorySelect.value = suggestedCategory;
-                    categorySelect.dispatchEvent(new Event('change'));
-
-                    setTimeout(() => {
-                        // Map AI response keys to form field IDs
-                        const keyMap = {
-                            description: 'details',
-                            total: 'totalPrice'
-                        };
-
-                        // Populate fields that have a direct match or a mapped match
-                        for (const aiKey in parsedData) {
-                            if (Object.hasOwnProperty.call(parsedData, aiKey)) {
-                                const formId = keyMap[aiKey] || aiKey;
-                                const element = document.getElementById(formId);
-                                if (element) {
-                                    element.value = parsedData[aiKey];
+                console.log("Preparando payload para API...");
+                const payload = {
+                    model: CONFIG.MODEL_NAME,
+                    contents: [{
+                        parts: [
+                            { text: prompt },
+                            {
+                                inline_data: {
+                                    mime_type: mimeType,
+                                    data: imageData.split(',')[1]
                                 }
                             }
-                        }
+                        ]
+                    }]
+                };
 
-                        // Handle special case where 'airfares' from AI can map to 'airfare' in the form
-                        if (parsedData.airfares && document.getElementById('airfare')) {
-                            document.getElementById('airfare').value = parsedData.airfares;
-                        }
-                    }, 100);
+                const apiUrl = `https://generativelanguage.googleapis.com/${CONFIG.API_VERSION}/models/${CONFIG.MODEL_NAME}:generateContent?key=${CONFIG.API_KEY}`;
 
-                    showAlert("Éxito", "Datos del recibo auto-rellenados. Por favor, revísalos.");
+                console.log("Enviando solicitud a API Gemini...");
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
 
-                } catch (error) {
-                    console.error("Error durante el procesamiento de la imagen o la IA:", error);
-                    showAlert("Error", `No se pudieron extraer los datos: ${error.message}. Por favor, rellena los campos manualmente.`);
-                } finally {
-                    showLoading(false);
-                    document.getElementById('extractedData').classList.remove('hidden');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error("Error detallado de la API:", errorData);
+                    throw new Error(`Error de la API: ${errorData.error.message}`);
                 }
-            };
-            reader.readAsDataURL(file);
-        });
+
+                const result = await response.json();
+                console.log("Respuesta de la API:", result);
+
+                let jsonString = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                console.log("Texto recibido de la API:", jsonString);
+
+                const startIndex = jsonString.indexOf('{');
+                const endIndex = jsonString.lastIndexOf('}');
+
+                if (startIndex === -1 || endIndex === -1) {
+                    throw new Error("No se encontró un objeto JSON válido en la respuesta");
+                }
+
+                jsonString = jsonString.substring(startIndex, endIndex + 1);
+                console.log("JSON extraído:", jsonString);
+
+                let parsedData;
+                try {
+                    parsedData = JSON.parse(jsonString);
+                } catch (parseError) {
+                    console.error("Error al parsear JSON:", parseError, "JSON String:", jsonString);
+                    throw new Error("No se pudo procesar la respuesta de la IA: formato JSON inválido.");
+                }
+
+                console.log("Datos parseados exitosamente:", parsedData);
+
+                if (!parsedData.date || !parsedData.description) {
+                    throw new Error("Faltan datos requeridos en la respuesta de la IA");
+                }
+
+                const keyMap = {
+                    description: 'details',
+                    total: 'totalPrice'
+                };
+
+                const excludedFields = new Set(['item', 'purchaseOrder', 'place']);
+
+                for (const aiKey in parsedData) {
+                    if (!Object.hasOwnProperty.call(parsedData, aiKey)) continue;
+
+                    const formId = keyMap[aiKey] || aiKey;
+
+                    if (excludedFields.has(formId)) {
+                        console.log(`Campo ${formId} excluido del auto-relleno.`);
+                        continue;
+                    }
+
+                    const element = document.getElementById(formId);
+                    if (element) {
+                        element.value = parsedData[aiKey];
+                    }
+                }
+
+                if (parsedData.airfares && document.getElementById('airfare')) {
+                    document.getElementById('airfare').value = parsedData.airfares;
+                }
+
+                showAlert("Éxito", "Datos del recibo auto-rellenados. Por favor, revísalos.");
+
+            } catch (error) {
+                console.error("Error durante el procesamiento de la imagen o la IA:", error);
+                showAlert("Error", `No se pudieron extraer los datos: ${error.message}. Por favor, rellena los campos manualmente.`);
+            } finally {
+                showLoading(false);
+                document.getElementById('extractedData').classList.remove('hidden');
+            }
+        }
+
+        document.getElementById('autoFillBtn').addEventListener('click', autoFillExpenseFields);
 
     document.getElementById('expenseCategory').addEventListener('change', function(e) {
         const category = e.target.value;
         const fieldsContainer = document.getElementById('categoryFields');
         fieldsContainer.innerHTML = '';
+
+        const autoFillBtn = document.getElementById('autoFillBtn');
+        if (autoFillBtn) {
+            autoFillBtn.disabled = !category;
+        }
 
         if (category && categoryFields[category]) {
             categoryFields[category].forEach(field => {
