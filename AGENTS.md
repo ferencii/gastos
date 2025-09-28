@@ -1,4 +1,6 @@
-# AGENTS.md - Documentación del Proyecto Gastos
+## Instrucciones
+
+Todo debe de ser en español, tanto tus respuestas como las anotaciones en el código, no se debe usar bajo ningún concepto otro idioma que no sea el español
 
 ## Descripción General
 
