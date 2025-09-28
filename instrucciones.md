@@ -24,6 +24,7 @@ No hay archivos JavaScript o CSS externos: todo el comportamiento y los estilos 
 - Se soportan las categorías **OVERSEAS - TRAVEL EXPENSES**, **LOCAL - TRAVEL EXPENSES**, **ENTERTAINMENT** y **OTHERS**, cada una con sus campos particulares.
 - Los gastos se pueden crear y editar; al editar se precargan los datos e imagen previamente guardados.
 - Desde la vista de detalle es posible eliminar un gasto individual desde su tarjeta, previa confirmación, lo que actualiza inmediatamente la lista y el estado persistido.
+- Las miniaturas de los recibos se pueden pulsar para abrir un modal con la imagen en alta resolución; se cierra con el botón dedicado, al hacer clic fuera o con la tecla Escape.
 
 ### Captura de recibos y auto-relleno
 - Los botones **Tomar Foto del Recibo** y **Seleccionar Imagen del Dispositivo** utilizan el `<input type="file" capture="camera">` para obtener la imagen y mostrarla en la vista previa.
