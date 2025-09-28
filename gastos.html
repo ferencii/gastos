@@ -148,11 +148,11 @@
                 <img id="receiptPreview" class="rounded-xl w-full max-h-64 object-contain mx-auto border border-gray-300 hidden" />
                 <div id="extractedData" class="space-y-4 hidden">
                     <select id="expenseCategory" class="input-text">
-                        <option value="" disabled selected>Selecciona una categoría</option>
+                        <option value="" disabled>Selecciona una categoría</option>
                         <option value="OVERSEAS - TRAVEL EXPENSES">OVERSEAS - TRAVEL EXPENSES</option>
                         <option value="LOCAL - TRAVEL EXPENSES">LOCAL - TRAVEL EXPENSES</option>
                         <option value="ENTERTAINMENT">ENTERTAINMENT</option>
-                        <option value="OTHERS">OTHERS</option>
+                        <option value="OTHERS" selected>OTHERS</option>
                     </select>
 
                     <button id="autoFillBtn" class="btn-secondary w-full" disabled>Auto-Rellenar</button>
@@ -340,11 +340,25 @@
                 editingExpenseIndex = null;
                 viewTitle.textContent = 'Añadir Nuevo Gasto';
                 saveBtn.textContent = 'Guardar Gasto';
-                document.getElementById('expenseCategory').value = '';
-                document.getElementById('categoryFields').innerHTML = '';
-                document.getElementById('autoFillBtn').disabled = true;
-                delete document.getElementById('autoFillBtn').dataset.imageMimeType;
-                delete document.getElementById('saveExpenseBtn').dataset.imageData;
+                const categorySelect = document.getElementById('expenseCategory');
+                const fieldsContainer = document.getElementById('categoryFields');
+                const autoFillBtn = document.getElementById('autoFillBtn');
+
+                if (fieldsContainer) {
+                    fieldsContainer.innerHTML = '';
+                }
+
+                if (autoFillBtn) {
+                    autoFillBtn.disabled = false;
+                    delete autoFillBtn.dataset.imageMimeType;
+                }
+
+                if (categorySelect) {
+                    categorySelect.value = 'OTHERS';
+                    categorySelect.dispatchEvent(new Event('change'));
+                }
+
+                delete saveBtn.dataset.imageData;
             }
 
             showView('addExpenseView');
@@ -1087,6 +1101,104 @@ El JSON debe tener este formato exacto:
                 return { startRow, endRow, templateRow };
             }
 
+            function columnLettersToNumber(letters) {
+                if (!letters) return null;
+                let result = 0;
+                for (const char of letters) {
+                    const code = char.charCodeAt(0);
+                    if (code < 65 || code > 90) {
+                        return null;
+                    }
+                    result = (result * 26) + (code - 64);
+                }
+                return result;
+            }
+
+            function parseCellAddress(address) {
+                if (!address) return null;
+                const normalized = address.replace(/\$/g, '').toUpperCase();
+                const match = normalized.match(/^([A-Z]+)(\d+)$/);
+                if (!match) return null;
+                return {
+                    col: columnLettersToNumber(match[1]),
+                    row: parseInt(match[2], 10)
+                };
+            }
+
+            function parseRangeAddress(address) {
+                if (!address) return null;
+                const parts = address.split(':');
+                if (parts.length === 1) {
+                    const cell = parseCellAddress(parts[0]);
+                    return cell ? { start: cell, end: cell } : null;
+                }
+                const start = parseCellAddress(parts[0]);
+                const end = parseCellAddress(parts[1]);
+                if (!start || !end) return null;
+                return { start, end };
+            }
+
+            function resetRowValues(row, templateHeight) {
+                if (!row) return;
+                if (templateHeight !== undefined) {
+                    row.height = templateHeight;
+                }
+                row.hidden = false;
+                row.outlineLevel = 0;
+
+                for (let col = 2; col <= 12; col++) {
+                    const cell = row.getCell(col);
+                    if (cell) {
+                        cell.value = null;
+                    }
+                }
+            }
+
+            function clearCategoryRange(range) {
+                if (!range || !range.startRow || !range.endRow) {
+                    return;
+                }
+
+                const mergesToCheck = [];
+                const rawMerges = ccSheet._merges;
+
+                if (rawMerges) {
+                    if (typeof rawMerges.forEach === 'function') {
+                        rawMerges.forEach((value, key) => {
+                            if (typeof key === 'string') {
+                                mergesToCheck.push(key);
+                            } else if (typeof value === 'string') {
+                                mergesToCheck.push(value);
+                            }
+                        });
+                    } else if (Array.isArray(rawMerges)) {
+                        mergesToCheck.push(...rawMerges);
+                    } else if (typeof rawMerges === 'object') {
+                        Object.keys(rawMerges).forEach(address => mergesToCheck.push(address));
+                    }
+                }
+
+                const templateHeight = range.templateRow ? ccSheet.getRow(range.templateRow).height : undefined;
+                range.templateHeight = templateHeight;
+
+                mergesToCheck.forEach(address => {
+                    const parsed = parseRangeAddress(address);
+                    if (!parsed) return;
+                    if (parsed.end.row < range.startRow || parsed.start.row > range.endRow) return;
+                    if (parsed.end.col < 2 || parsed.start.col > 12) return;
+                    try {
+                        ccSheet.unMergeCells(address);
+                    } catch (error) {
+                        console.warn(`No se pudo descombinar ${address}:`, error);
+                    }
+                });
+
+                for (let rowNum = range.startRow; rowNum <= range.endRow; rowNum++) {
+                    const row = ccSheet.getRow(rowNum);
+                    resetRowValues(row, templateHeight);
+                }
+            }
+
             function rowHasData(row) {
                 const columns = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
                 return columns.some(column => {
@@ -1203,19 +1315,34 @@ El JSON debe tener este formato exacto:
             }
 
             // Procesar cada gasto
+            const categoryRanges = new Map();
+
             for (const expense of project.expenses) {
-                const range = findCategoryRange(expense.category);
-                if (!range.startRow || !range.endRow) {
-                    console.error(`Rango no encontrado para categoría ${expense.category}`);
+                if (!expense || !expense.category) {
                     continue;
+                }
+
+                const category = expense.category;
+                let range = categoryRanges.get(category);
+
+                if (!range) {
+                    range = findCategoryRange(category);
+                    if (!range.startRow || !range.endRow) {
+                        console.error(`Rango no encontrado para categoría ${category}`);
+                        continue;
+                    }
+                    clearCategoryRange(range);
+                    categoryRanges.set(category, range);
                 }
 
                 let rowToUse = findFirstEmptyRow(range.startRow, range.endRow);
                 if (!rowToUse) {
                     rowToUse = insertNewRow(range.endRow, range.templateRow);
+                    range.endRow = rowToUse;
                 }
 
                 const row = ccSheet.getRow(rowToUse);
+                resetRowValues(row, range.templateHeight);
 
                 // Datos comunes
                 row.getCell('B').value = new Date(expense.date);
