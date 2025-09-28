@@ -129,6 +129,7 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <button id="addExpenseBtn" class="btn-primary">Añadir Gasto</button>
                 <button id="downloadExcelBtn" class="btn-secondary">Descargar Excel</button>
+                <button id="previewExcelBtn" class="btn-secondary">Previsualizar Excel</button>
                 <button id="deleteProjectBtn" class="bg-red-500 text-white font-bold py-3 px-6 rounded-xl shadow-md hover:bg-red-600 transition-colors duration-200 col-span-1 sm:col-span-2">Eliminar Proyecto</button>
             </div>
             <button id="backFromProjectBtn" class="btn-secondary w-full mt-4">Volver a Proyectos</button>
@@ -173,6 +174,15 @@
             <h3 id="modalTitle" class="text-xl font-bold mb-2"></h3>
             <p id="modalMessage" class="mb-4"></p>
             <button id="closeModalBtn" class="btn-primary">Aceptar</button>
+        </div>
+    </div>
+
+    <div id="excelPreviewModal" class="modal">
+        <div class="modal-content w-full max-w-5xl max-h-[80vh] overflow-y-auto">
+            <h2 class="text-2xl font-bold mb-4">Previsualización del Excel</h2>
+            <p class="text-sm text-gray-500 mb-4">Esta vista te permite comprobar los datos antes de descargar la plantilla.</p>
+            <div id="excelPreviewBody" class="space-y-6"></div>
+            <button id="closePreviewBtn" class="btn-secondary mt-6 w-full">Cerrar</button>
         </div>
     </div>
 
@@ -254,6 +264,9 @@
         };
         const customAlertModal = document.getElementById('customAlertModal');
         const closeModalBtn = document.getElementById('closeModalBtn');
+        const excelPreviewModal = document.getElementById('excelPreviewModal');
+        const closePreviewBtn = document.getElementById('closePreviewBtn');
+        const excelPreviewBody = document.getElementById('excelPreviewBody');
 
         function showView(viewName) {
             Object.values(views).forEach(view => view.classList.add('hidden'));
@@ -477,7 +490,7 @@
                 list.innerHTML = `<p class="text-center text-gray-500">No hay gastos en este proyecto. ¡Añade uno!</p>`;
                 return;
             }
-            expenses.forEach(expense => {
+            expenses.forEach((expense, index) => {
                 const expenseCard = document.createElement('div');
                 expenseCard.classList.add('card');
                 
@@ -526,9 +539,14 @@
                     </div>
                     <p class="text-sm mt-2">Invoice Missing: ${expense.invoiceMissing ? 'Sí' : 'No'}</p>
                     ${expense.foreignCurrency ? `<p class="text-sm">Foreign Currency: $${expense.foreignCurrency}</p>` : ''}
-                    <button class="edit-expense-btn btn-secondary mt-4 w-full text-sm" data-expense-index="${expenses.indexOf(expense)}">
-                        Editar Gasto
-                    </button>
+                    <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button class="edit-expense-btn btn-secondary w-full text-sm" data-expense-index="${index}">
+                            Editar Gasto
+                        </button>
+                        <button class="delete-expense-btn bg-red-500 text-white font-bold py-2 px-4 rounded-xl shadow-md hover:bg-red-600 transition-colors duration-200 w-full text-sm" data-expense-index="${index}">
+                            Eliminar Gasto
+                        </button>
+                    </div>
                 `;
                 list.appendChild(expenseCard);
             });
@@ -542,6 +560,166 @@
                     }
                 });
             });
+
+            document.querySelectorAll('.delete-expense-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const expenseIndex = parseInt(e.target.dataset.expenseIndex);
+                    deleteExpense(currentProjectId, expenseIndex);
+                });
+            });
+        }
+
+        function deleteExpense(projectId, expenseIndex) {
+            const project = allProjects.find(p => p.id === projectId);
+            if (!project || !project.expenses[expenseIndex]) {
+                return;
+            }
+
+            if (!confirm('¿Deseas eliminar este gasto? Esta acción no se puede deshacer.')) {
+                return;
+            }
+
+            project.expenses.splice(expenseIndex, 1);
+            saveProjects();
+            loadProjectDetails(projectId);
+        }
+
+        function formatNumberForPreview(value) {
+            if (value === null || value === undefined || value === '') {
+                return '';
+            }
+            const numericValue = Number(value);
+            if (Number.isFinite(numericValue)) {
+                return numericValue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+            return value;
+        }
+
+        const CATEGORY_LABELS = {
+            'OVERSEAS - TRAVEL EXPENSES': 'Overseas - Travel Expenses',
+            'LOCAL - TRAVEL EXPENSES': 'Local - Travel Expenses',
+            'ENTERTAINMENT': 'Entertainment',
+            'OTHERS': 'Others'
+        };
+
+        const EXCEL_PREVIEW_COLUMNS = {
+            'OVERSEAS - TRAVEL EXPENSES': [
+                { header: 'Fecha', value: expense => expense.date || '' },
+                { header: 'Detalle', value: expense => expense.details || '' },
+                { header: 'Purchase Order', value: expense => expense.purchaseOrder || '' },
+                { header: 'Client Training', value: expense => expense.clientTraining || '' },
+                { header: 'Meals', value: expense => formatNumberForPreview(expense.meals) },
+                { header: 'Accommodation', value: expense => formatNumberForPreview(expense.accommodation) },
+                { header: 'Airfares', value: expense => formatNumberForPreview(expense.airfares || expense.airfare) },
+                { header: 'Transport', value: expense => formatNumberForPreview(expense.transport) },
+                { header: 'Other', value: expense => formatNumberForPreview(expense.other) },
+                { header: 'Invoice Missing', value: expense => expense.invoiceMissing ? 'Sí' : 'No' },
+                { header: 'Foreign Currency', value: expense => formatNumberForPreview(expense.foreignCurrency) }
+            ],
+            'LOCAL - TRAVEL EXPENSES': [],
+            'ENTERTAINMENT': [
+                { header: 'Fecha', value: expense => expense.date || '' },
+                { header: 'Detalle', value: expense => expense.details || '' },
+                { header: 'Quantity', value: expense => formatNumberForPreview(expense.quantity) },
+                { header: 'Traveling', value: expense => expense.traveling || '' },
+                { header: 'Place', value: expense => expense.place || '' },
+                { header: 'Total Price', value: expense => formatNumberForPreview(expense.totalPrice) },
+                { header: 'Staff Meal', value: expense => formatNumberForPreview(expense.staffMeal) },
+                { header: 'Client Meal', value: expense => formatNumberForPreview(expense.clientMeal) },
+                { header: 'Invoice Missing', value: expense => expense.invoiceMissing ? 'Sí' : 'No' },
+                { header: 'Foreign Currency', value: expense => formatNumberForPreview(expense.foreignCurrency) }
+            ],
+            'OTHERS': [
+                { header: 'Fecha', value: expense => expense.date || '' },
+                { header: 'Detalle', value: expense => expense.details || '' },
+                { header: 'Client Training', value: expense => expense.clientTraining || '' },
+                { header: 'Purchase Order', value: expense => expense.purchaseOrder || '' },
+                { header: 'Project', value: expense => expense.project || '' },
+                { header: 'Total Price', value: expense => formatNumberForPreview(expense.totalPrice) },
+                { header: 'Invoice Missing', value: expense => expense.invoiceMissing ? 'Sí' : 'No' },
+                { header: 'Foreign Currency', value: expense => formatNumberForPreview(expense.foreignCurrency) }
+            ]
+        };
+        EXCEL_PREVIEW_COLUMNS['LOCAL - TRAVEL EXPENSES'] = EXCEL_PREVIEW_COLUMNS['OVERSEAS - TRAVEL EXPENSES'];
+
+        function renderExcelPreview(project) {
+            excelPreviewBody.innerHTML = '';
+
+            if (!project || project.expenses.length === 0) {
+                const emptyMessage = document.createElement('p');
+                emptyMessage.className = 'text-center text-gray-500';
+                emptyMessage.textContent = 'No hay gastos que mostrar en la previsualización.';
+                excelPreviewBody.appendChild(emptyMessage);
+                return;
+            }
+
+            Object.keys(EXCEL_PREVIEW_COLUMNS).forEach(category => {
+                const expenses = project.expenses.filter(expense => expense.category === category);
+                if (expenses.length === 0) {
+                    return;
+                }
+
+                const section = document.createElement('section');
+                section.className = 'space-y-3';
+
+                const title = document.createElement('h3');
+                title.className = 'text-xl font-semibold';
+                title.textContent = `${CATEGORY_LABELS[category] || category} (${expenses.length})`;
+                section.appendChild(title);
+
+                const tableWrapper = document.createElement('div');
+                tableWrapper.className = 'overflow-x-auto rounded-xl border border-gray-200';
+
+                const table = document.createElement('table');
+                table.className = 'min-w-full text-sm';
+
+                const thead = document.createElement('thead');
+                const headerRow = document.createElement('tr');
+                EXCEL_PREVIEW_COLUMNS[category].forEach(column => {
+                    const th = document.createElement('th');
+                    th.className = 'px-3 py-2 bg-gray-100 border-b border-gray-200 text-left text-xs font-semibold uppercase tracking-wide text-gray-600';
+                    th.textContent = column.header;
+                    headerRow.appendChild(th);
+                });
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+
+                const tbody = document.createElement('tbody');
+                expenses.forEach(expense => {
+                    const row = document.createElement('tr');
+                    row.className = 'odd:bg-white even:bg-gray-50';
+                    EXCEL_PREVIEW_COLUMNS[category].forEach(column => {
+                        const td = document.createElement('td');
+                        td.className = 'px-3 py-2 border-b border-gray-200 text-gray-700';
+                        const value = column.value(expense);
+                        td.textContent = value === null || value === undefined ? '' : value;
+                        row.appendChild(td);
+                    });
+                    tbody.appendChild(row);
+                });
+                table.appendChild(tbody);
+
+                tableWrapper.appendChild(table);
+                section.appendChild(tableWrapper);
+                excelPreviewBody.appendChild(section);
+            });
+
+            if (!excelPreviewBody.hasChildNodes()) {
+                const emptyMessage = document.createElement('p');
+                emptyMessage.className = 'text-center text-gray-500';
+                emptyMessage.textContent = 'No hay gastos que mostrar en la previsualización.';
+                excelPreviewBody.appendChild(emptyMessage);
+            }
+        }
+
+        function openExcelPreview() {
+            const project = allProjects.find(p => p.id === currentProjectId);
+            renderExcelPreview(project);
+            excelPreviewModal.style.display = 'flex';
+        }
+
+        function closeExcelPreview() {
+            excelPreviewModal.style.display = 'none';
         }
 
         // --- Event Listeners ---
@@ -551,8 +729,20 @@
         document.getElementById('backFromProjectBtn').addEventListener('click', showProjectsView);
         document.getElementById('backFromAddExpenseBtn').addEventListener('click', () => loadProjectDetails(currentProjectId));
         document.getElementById('deleteProjectBtn').addEventListener('click', () => deleteProject(currentProjectId));
+        document.getElementById('previewExcelBtn').addEventListener('click', openExcelPreview);
 
         document.getElementById('addExpenseBtn').addEventListener('click', showAddExpenseView);
+        closePreviewBtn.addEventListener('click', closeExcelPreview);
+        excelPreviewModal.addEventListener('click', (event) => {
+            if (event.target === excelPreviewModal) {
+                closeExcelPreview();
+            }
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && excelPreviewModal.style.display === 'flex') {
+                closeExcelPreview();
+            }
+        });
 
         // Modificar los event listeners para la captura de imagen
         document.getElementById('captureImageBtn').addEventListener('click', () => {

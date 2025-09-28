@@ -9,6 +9,8 @@
 ## Cambios recientes
 - Documentación técnica actualizada para reflejar la arquitectura real y el flujo completo de la aplicación.
 - Eliminación de `js/config.js` y `styles.css` al confirmarse que no eran utilizados.
+- Cada tarjeta de gasto permite eliminar el registro tras confirmación, mejorando el control de los proyectos.
+- Se añadió un modal de previsualización del Excel para validar los datos por categoría antes de descargar la plantilla.
 
 ## Próximos pasos sugeridos
 - Implementar un backend que oculte la API key y permita sincronizar los proyectos entre dispositivos.
