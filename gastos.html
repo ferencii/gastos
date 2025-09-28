@@ -93,6 +93,29 @@
             text-align: center;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
+        .modal-image-content {
+            background-color: transparent;
+            box-shadow: none;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+            max-width: 95vw;
+        }
+        .modal-image-content img {
+            max-width: 100%;
+            max-height: 80vh;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+        }
+        .receipt-thumbnail {
+            cursor: zoom-in;
+            transition: transform 0.2s ease;
+        }
+        .receipt-thumbnail:hover {
+            transform: scale(1.02);
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -186,6 +209,13 @@
         </div>
     </div>
 
+    <div id="imagePreviewModal" class="modal">
+        <div class="modal-content modal-image-content">
+            <img id="modalReceiptImage" src="" alt="Recibo ampliado" />
+            <button id="closeImageModalBtn" class="btn-secondary">Cerrar</button>
+        </div>
+    </div>
+
     <script type="module">
         // Configuración inicial
         const CONFIG = {
@@ -267,6 +297,9 @@
         const excelPreviewModal = document.getElementById('excelPreviewModal');
         const closePreviewBtn = document.getElementById('closePreviewBtn');
         const excelPreviewBody = document.getElementById('excelPreviewBody');
+        const imagePreviewModal = document.getElementById('imagePreviewModal');
+        const modalReceiptImage = document.getElementById('modalReceiptImage');
+        const closeImageModalBtn = document.getElementById('closeImageModalBtn');
 
         function showView(viewName) {
             Object.values(views).forEach(view => view.classList.add('hidden'));
@@ -288,9 +321,13 @@
         }
 
         function showAddExpenseView(expenseToEdit = null, expenseIndex = null) {
+            if (expenseToEdit instanceof Event) {
+                expenseToEdit = null;
+                expenseIndex = null;
+            }
             document.getElementById('receiptPreview').classList.add('hidden');
             document.getElementById('extractedData').classList.remove('hidden');
-            
+
             const saveBtn = document.getElementById('saveExpenseBtn');
             const viewTitle = document.querySelector('#addExpenseView h1');
             
@@ -362,6 +399,19 @@
             }
 
             showView('addExpenseView');
+        }
+
+        function openImageModal(imageSrc) {
+            if (!imageSrc) {
+                return;
+            }
+            modalReceiptImage.src = imageSrc;
+            imagePreviewModal.style.display = 'flex';
+        }
+
+        function closeImageModal() {
+            modalReceiptImage.src = '';
+            imagePreviewModal.style.display = 'none';
         }
 
         function showLoading(show) {
@@ -544,7 +594,7 @@
                 }
 
                 expenseCard.innerHTML = `
-                    ${expense.receiptImage ? `<img src="${expense.receiptImage}" class="rounded-xl w-full max-h-48 object-contain mb-4" />` : ''}
+                    ${expense.receiptImage ? `<img src="${expense.receiptImage}" class="rounded-xl w-full max-h-48 object-contain mb-4 receipt-thumbnail" alt="Recibo del gasto" data-full-image="${expense.receiptImage}" />` : ''}
                     <h3 class="text-lg font-semibold">${expense.details || 'Sin descripción'}</h3>
                     <p class="text-sm font-medium">Fecha: ${expense.date}</p>
                     <p class="text-sm font-medium">Categoría: ${expense.category}</p>
@@ -579,6 +629,13 @@
                 btn.addEventListener('click', (e) => {
                     const expenseIndex = parseInt(e.target.dataset.expenseIndex);
                     deleteExpense(currentProjectId, expenseIndex);
+                });
+            });
+
+            document.querySelectorAll('.receipt-thumbnail').forEach(image => {
+                image.addEventListener('click', () => {
+                    const source = image.dataset.fullImage || image.src;
+                    openImageModal(source);
                 });
             });
         }
@@ -745,16 +802,28 @@
         document.getElementById('deleteProjectBtn').addEventListener('click', () => deleteProject(currentProjectId));
         document.getElementById('previewExcelBtn').addEventListener('click', openExcelPreview);
 
-        document.getElementById('addExpenseBtn').addEventListener('click', showAddExpenseView);
+        document.getElementById('addExpenseBtn').addEventListener('click', () => showAddExpenseView());
         closePreviewBtn.addEventListener('click', closeExcelPreview);
         excelPreviewModal.addEventListener('click', (event) => {
             if (event.target === excelPreviewModal) {
                 closeExcelPreview();
             }
         });
+        closeImageModalBtn.addEventListener('click', closeImageModal);
+        imagePreviewModal.addEventListener('click', (event) => {
+            if (event.target === imagePreviewModal) {
+                closeImageModal();
+            }
+        });
         document.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape' && excelPreviewModal.style.display === 'flex') {
+            if (event.key !== 'Escape') {
+                return;
+            }
+            if (excelPreviewModal.style.display === 'flex') {
                 closeExcelPreview();
+            }
+            if (imagePreviewModal.style.display === 'flex') {
+                closeImageModal();
             }
         });
 
