@@ -21,6 +21,7 @@ No hay archivos JavaScript o CSS externos: todo el comportamiento y los estilos 
 - Cada proyecto almacena un arreglo `expenses` con los gastos asociados.
 - El formulario de alta se genera dinámicamente en función de la categoría seleccionada (`categoryFields`).
 - Al crear un gasto nuevo la categoría **OTHERS** se carga por defecto y el formulario se despliega automáticamente para agilizar la captura.
+- La función `showAddExpenseView` ignora eventos DOM y siempre fuerza la precarga de **OTHERS** cuando se abre desde el botón general, garantizando que el formulario esté listo sin pasos adicionales.
 - Se soportan las categorías **OVERSEAS - TRAVEL EXPENSES**, **LOCAL - TRAVEL EXPENSES**, **ENTERTAINMENT** y **OTHERS**, cada una con sus campos particulares.
 - Los gastos se pueden crear y editar; al editar se precargan los datos e imagen previamente guardados.
 - Desde la vista de detalle es posible eliminar un gasto individual desde su tarjeta, previa confirmación, lo que actualiza inmediatamente la lista y el estado persistido.

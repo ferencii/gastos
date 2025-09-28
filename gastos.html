@@ -321,9 +321,13 @@
         }
 
         function showAddExpenseView(expenseToEdit = null, expenseIndex = null) {
+            if (expenseToEdit instanceof Event) {
+                expenseToEdit = null;
+                expenseIndex = null;
+            }
             document.getElementById('receiptPreview').classList.add('hidden');
             document.getElementById('extractedData').classList.remove('hidden');
-            
+
             const saveBtn = document.getElementById('saveExpenseBtn');
             const viewTitle = document.querySelector('#addExpenseView h1');
             
@@ -798,7 +802,7 @@
         document.getElementById('deleteProjectBtn').addEventListener('click', () => deleteProject(currentProjectId));
         document.getElementById('previewExcelBtn').addEventListener('click', openExcelPreview);
 
-        document.getElementById('addExpenseBtn').addEventListener('click', showAddExpenseView);
+        document.getElementById('addExpenseBtn').addEventListener('click', () => showAddExpenseView());
         closePreviewBtn.addEventListener('click', closeExcelPreview);
         excelPreviewModal.addEventListener('click', (event) => {
             if (event.target === excelPreviewModal) {
