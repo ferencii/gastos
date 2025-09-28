@@ -818,106 +818,128 @@ El JSON debe tener este formato exacto:
                 const normalizedTarget = normalizeCategory(categoryName);
                 let startRow = null;
                 let endRow = null;
+                let templateRow = null;
 
-                // Buscar la categoría en la columna B
                 for (let i = 1; i <= ccSheet.rowCount; i++) {
-                    const cell = ccSheet.getCell(`B${i}`);
+                    const categoryCell = ccSheet.getCell(`B${i}`);
+                    if (normalizeCategory(categoryCell.value) !== normalizedTarget) continue;
 
-                    if (normalizeCategory(cell.value) === normalizedTarget) {
-                        // La fila de datos comienza después de la fila "DATE"
-                        startRow = i + 2;
-                        
-                        // Buscar el final (donde las columnas B, C, D están combinadas)
-                        for (let j = startRow; j <= ccSheet.rowCount; j++) {
-                            const cellB = ccSheet.getCell(`B${j}`);
-                            const cellC = ccSheet.getCell(`C${j}`);
-                            const cellD = ccSheet.getCell(`D${j}`);
-                            
-                            if (cellB.isMerged && cellC.isMerged && cellD.isMerged) {
-                                endRow = j - 1;
-                                break;
-                            }
+                    // Buscar la fila del encabezado "DATE"
+                    let headerRow = i + 1;
+                    for (; headerRow <= ccSheet.rowCount; headerRow++) {
+                        const candidate = ccSheet.getCell(`B${headerRow}`);
+                        if (normalizeCategory(candidate.value) === 'DATE') {
+                            break;
                         }
-                        break;
                     }
+
+                    // El inicio real de los datos es la primera fila después del encabezado
+                    startRow = (headerRow <= ccSheet.rowCount ? headerRow : i) + 1;
+
+                    // Evitar filas que formen parte de celdas combinadas (el encabezado "DATE" está fusionado con la fila siguiente)
+                    while (startRow <= ccSheet.rowCount && ccSheet.getCell(`B${startRow}`).isMerged) {
+                        startRow++;
+                    }
+
+                    templateRow = startRow;
+
+                    // Buscar la fila final de la sección (cuando B, C y D estén combinadas)
+                    endRow = ccSheet.rowCount;
+                    for (let j = startRow; j <= ccSheet.rowCount; j++) {
+                        const cellB = ccSheet.getCell(`B${j}`);
+                        const cellC = ccSheet.getCell(`C${j}`);
+                        const cellD = ccSheet.getCell(`D${j}`);
+
+                        if (cellB.isMerged && cellC.isMerged && cellD.isMerged) {
+                            endRow = j - 1;
+                            break;
+                        }
+                        endRow = j;
+                    }
+
+                    break;
                 }
-                return { startRow, endRow };
+
+                return { startRow, endRow, templateRow };
+            }
+
+            function rowHasData(row) {
+                const columns = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
+                return columns.some(column => {
+                    const cell = row.getCell(column);
+                    const value = cell.value;
+                    if (value === null || value === undefined) return false;
+                    if (typeof value === 'string') {
+                        return value.trim() !== '';
+                    }
+                    return true;
+                });
             }
 
             // Función para encontrar la primera fila vacía en un rango
             function findFirstEmptyRow(startRow, endRow) {
                 for (let i = startRow; i <= endRow; i++) {
-                    const dateCell = ccSheet.getCell(`B${i}`);
-                    if (!dateCell.value) {
+                    const row = ccSheet.getRow(i);
+                    const dateCell = row.getCell('B');
+                    if (dateCell.isMerged) {
+                        continue;
+                    }
+                    if (!rowHasData(row)) {
                         return i;
                     }
                 }
                 return null;
             }
 
-            // Función para insertar una nueva fila con el formato correcto
-            function insertNewRow(afterRowNum) {
-                // Insertar la nueva fila después de la fila especificada
-                const newRowNumber = afterRowNum + 1;
-                ccSheet.insertRow(newRowNumber, 'i+');
-                
-                const sourceRow = ccSheet.getRow(afterRowNum);
-                const newRow = ccSheet.getRow(newRowNumber);
-                
-                // Copiar estilos y valores celda por celda
-                sourceRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-                    const newCell = newRow.getCell(colNumber);
-                    
-                    // Copiar estilo
-                    newCell.style = JSON.parse(JSON.stringify(cell.style));
-                    
-                    // Copiar formato numérico si existe
-                    if (cell.numFmt) {
-                        newCell.numFmt = cell.numFmt;
-                    }
-                    
-                    // Manejar fórmulas
-                    if (cell.formula) {
-                        try {
-                            // Ajustar la fórmula para la nueva fila
-                            const adjustedFormula = cell.formula.replace(
-                                /([A-Za-z]+)(\d+)/g,
-                                (match, col, row) => {
-                                    const newRow = parseInt(row) + 1;
-                                    return `${col}${newRow}`;
-                                }
-                            );
-                            newCell.value = { formula: adjustedFormula };
-                        } catch (error) {
-                            console.warn(`No se pudo copiar la fórmula en la columna ${colNumber}:`, error);
-                            // Si falla la copia de la fórmula, copiar solo el valor
-                            newCell.value = cell.value;
-                        }
-                    } else {
-                        // Copiar valor si no es una fórmula
-                        newCell.value = cell.value;
-                    }
+            function adjustFormulaReferences(formula, rowOffset) {
+                if (!formula || !rowOffset) return formula;
+                return formula.replace(/(\$?[A-Za-z]{1,3})(\$?)(\d+)/g, (match, column, rowPrefix, rowNumber) => {
+                    const absoluteColumn = column.startsWith('$');
+                    const absoluteRow = rowPrefix === '$';
+                    const cleanColumn = absoluteColumn ? column.slice(1) : column;
+                    const numericRow = parseInt(rowNumber, 10);
+                    const newRowNumber = absoluteRow ? numericRow : numericRow + rowOffset;
+                    const columnPart = absoluteColumn ? `$${cleanColumn}` : cleanColumn;
+                    const rowPart = absoluteRow ? `$${numericRow}` : `${newRowNumber}`;
+                    return `${columnPart}${rowPart}`;
                 });
-                
-                // Ajustar altura de fila si es necesario
+            }
+
+            // Función para insertar una nueva fila con el formato correcto
+            function insertNewRow(afterRowNum, templateRowNum) {
+                const newRowNumber = afterRowNum + 1;
+                ccSheet.spliceRows(newRowNumber, 0, []);
+
+                const templateRowIndex = (templateRowNum && templateRowNum <= ccSheet.rowCount)
+                    ? templateRowNum
+                    : afterRowNum;
+                const sourceRow = ccSheet.getRow(templateRowIndex);
+                const newRow = ccSheet.getRow(newRowNumber);
+
                 if (sourceRow.height) {
                     newRow.height = sourceRow.height;
                 }
-                
-                // Copiar fusiones de celdas si existen
-                ccSheet.mergeCells.forEach(merge => {
-                    if (merge.start.row === afterRowNum) {
-                        const colStart = merge.start.col;
-                        const colEnd = merge.end.col;
-                        ccSheet.mergeCells(
-                            newRowNumber,
-                            colStart,
-                            newRowNumber,
-                            colEnd
-                        );
+
+                const rowOffset = newRowNumber - templateRowIndex;
+
+                sourceRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+                    const targetCell = newRow.getCell(colNumber);
+                    const styleClone = cell.style ? JSON.parse(JSON.stringify(cell.style)) : {};
+                    targetCell.style = styleClone;
+
+                    if (cell.numFmt) {
+                        targetCell.numFmt = cell.numFmt;
+                    }
+
+                    const cellValue = cell.value;
+                    const formula = cell.formula || (cellValue && typeof cellValue === 'object' && cellValue.formula);
+                    if (formula) {
+                        targetCell.value = { formula: adjustFormulaReferences(formula, rowOffset) };
+                    } else {
+                        targetCell.value = null;
                     }
                 });
-                
+
                 return newRowNumber;
             }
 
@@ -966,7 +988,7 @@ El JSON debe tener este formato exacto:
 
                 let rowToUse = findFirstEmptyRow(range.startRow, range.endRow);
                 if (!rowToUse) {
-                    rowToUse = insertNewRow(range.endRow);
+                    rowToUse = insertNewRow(range.endRow, range.templateRow);
                 }
 
                 const row = ccSheet.getRow(rowToUse);
